@@ -1,0 +1,40 @@
+[build-system]
+requires = ["maturin>=1.12,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "gangstarr"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+    "django>=4.2",
+]
+dynamic = ["version"]
+[project.optional-dependencies]
+tests = [
+    "pytest",
+    "pytest-django",
+]
+dev = [
+    "pytest",
+    "pytest-django",
+    "watchfiles",
+]
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "gangstarr.gangstarr"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+DJANGO_SETTINGS_MODULE = "gangstarr.testapp.settings"
+addopts = "--reuse-db"
+filterwarnings = [
+    "ignore::DeprecationWarning:django.http.request:",
+    "ignore::DeprecationWarning:django.utils.encoding:",
+]

@@ -1,0 +1,55 @@
+# Rust
+/target
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# C/Rust extensions
+*.so
+*.dylib
+*.dSYM/
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Distribution / packaging
+*.egg-info/
+*.egg
+dist/
+build/
+wheels/
+sdist/
+
+# Databases
+*.sqlite3
+
+# Testing
+.pytest_cache/
+htmlcov/
+.tox/
+.coverage
+coverage.xml
+nosetests.xml
+
+# Django
+*.log
+*.pot
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Misc
+.python-version
+pip-log.txt
