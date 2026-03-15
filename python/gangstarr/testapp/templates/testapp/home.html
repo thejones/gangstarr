@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chinook Music Store</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background-color: #f5f5f5; }
+        .container { background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        .info { font-size: 18px; color: #666; margin: 20px 0; }
+        .note { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .api-links { display: flex; gap: 12px; flex-wrap: wrap; margin: 20px 0; }
+        .btn { display: inline-block; padding: 10px 20px; border-radius: 5px; font-size: 14px; font-weight: bold; text-decoration: none; cursor: pointer; border: none; }
+        .btn-graphql { background-color: #e535ab; color: white; }
+        .btn-graphql:hover { background-color: #c42d96; text-decoration: none; }
+        .btn-rest { background-color: #007bff; color: white; }
+        .btn-rest:hover { background-color: #0056b3; text-decoration: none; }
+        .btn-run { background-color: #28a745; color: white; }
+        .btn-run:hover { background-color: #218838; }
+        .result-panel { display: none; margin-top: 20px; background-color: #1e1e1e; border-radius: 8px; overflow: hidden; }
+        .result-header { background-color: #333; color: #ccc; padding: 8px 15px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+        .result-header button { background: none; border: 1px solid #666; color: #ccc; padding: 2px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; }
+        .result-body { padding: 15px; color: #d4d4d4; font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 13px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+        .loading { color: #ffc107; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Chinook Music Store</h1>
+        <p class="info">Welcome to the Chinook Music Store demo application.</p>
+        <p class="info">Total Artists in Database: <strong>{{ artist_count }}</strong></p>
+        <div class="note">
+            <strong>Note:</strong> This demo app tests the gangstarr profiler.
+            It demonstrates query capture from traditional Django views, DRF, and GraphQL.
+        </div>
+        <div class="api-links">
+            <a class="btn btn-graphql" href="/graphql/">GraphQL Playground</a>
+            <button class="btn btn-run" onclick="runGraphQL()">Run GraphQL Query</button>
+            <a class="btn btn-rest" href="/api/artists/">REST API</a>
+        </div>
+        <div id="graphql-result" class="result-panel">
+            <div class="result-header">
+                <span>GraphQL Response</span>
+                <button onclick="document.getElementById('graphql-result').style.display='none'">Close</button>
+            </div>
+            <div id="graphql-result-body" class="result-body"></div>
+        </div>
+    </div>
+    <script>
+        function runGraphQL() {
+            const panel = document.getElementById('graphql-result');
+            const body = document.getElementById('graphql-result-body');
+            panel.style.display = 'block';
+            body.className = 'result-body loading';
+            body.textContent = 'Running query…';
+            const query = `{ artistsWithAlbumsAndTracks(limit: 5) { id name albums { id title tracks { id name milliseconds unitPrice } } } }`;
+            fetch('/graphql/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) })
+            .then(res => res.json())
+            .then(data => { body.className = 'result-body'; body.textContent = JSON.stringify(data, null, 2); })
+            .catch(err => { body.className = 'result-body'; body.textContent = 'Error: ' + err.message; });
+        }
+    </script>
+</body>
+</html>

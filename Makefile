@@ -31,3 +31,11 @@ dev:
 ## Run Django dev server (no Rust watch)
 runserver:
 	source .venv/bin/activate && python python/gangstarr/testapp/manage.py runserver
+
+## Lint Python code
+lint:
+	source .venv/bin/activate && ruff check python tests
+
+## Lint and fix Python code
+lint-fix:
+	source .venv/bin/activate && ruff check --fix python tests

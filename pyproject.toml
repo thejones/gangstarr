@@ -23,6 +23,9 @@ dev = [
     "pytest",
     "pytest-django",
     "watchfiles",
+    "djangorestframework",
+    "graphene-django",
+    "ruff",
 ]
 [tool.maturin]
 features = ["pyo3/extension-module"]
@@ -38,3 +41,12 @@ filterwarnings = [
     "ignore::DeprecationWarning:django.http.request:",
     "ignore::DeprecationWarning:django.utils.encoding:",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["python", "tests"]
+exclude = ["python/gangstarr/testapp/migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

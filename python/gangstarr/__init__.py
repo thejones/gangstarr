@@ -1,11 +1,12 @@
 from pathlib import Path
 
-from .gangstarr import *
 from .context_manager import full_clip
+from .gangstarr import *  # noqa: F403
 from .reporting import (
+    JsonOptions,
     LoggingOptions,
-    PrintingOptions,
     MassAppealException,
+    PrintingOptions,
     RaisingOptions,
     ReportingOptions,
 )
@@ -17,6 +18,7 @@ def default_base_dir(file) -> str:
 
 __all__ = [
     "full_clip",
+    "JsonOptions",
     "LoggingOptions",
     "PrintingOptions",
     "RaisingOptions",

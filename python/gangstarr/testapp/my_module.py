@@ -1,4 +1,4 @@
-from gangstarr.testapp.models import Artist, Album
+from gangstarr.testapp.models import Album, Artist
 
 
 def create_albums():

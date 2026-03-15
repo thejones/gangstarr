@@ -1,6 +1,13 @@
 from django.urls import path
-from .views import artists_view
+from graphene_django.views import GraphQLView
+
+from . import api_views, views
+from .schema import schema
 
 urlpatterns = [
-    path('artists/', artists_view, name='artists'),
+    path('', views.home, name='home'),
+    path('artists/', views.artists_view, name='artists'),
+    path('artists/<int:artist_id>/', views.artist_detail, name='artist_detail'),
+    path('api/artists/', api_views.artist_list_api, name='artist_list_api'),
+    path('graphql/', GraphQLView.as_view(graphiql=True, schema=schema), name='graphql'),
 ]

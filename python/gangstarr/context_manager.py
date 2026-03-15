@@ -3,8 +3,9 @@ import contextlib
 from django.conf import settings
 from django.db import connection
 
+from gangstarr.reporting import Guru, PrintingOptions, ReportingOptions
+
 from .premier import Premier
-from gangstarr.reporting import ReportingOptions, Guru, PrintingOptions
 
 
 class full_clip(contextlib.ContextDecorator):
