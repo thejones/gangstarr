@@ -28,14 +28,11 @@ jobs:
             target: x86_64
           - runner: ubuntu-22.04
             target: x86
-          - runner: ubuntu-22.04
+          - runner: ubuntu-22.04-arm
             target: aarch64
-          - runner: ubuntu-22.04
+          - runner: ubuntu-22.04-arm
             target: armv7
-          - runner: ubuntu-22.04
-            target: s390x
-          - runner: ubuntu-22.04
-            target: ppc64le
+
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -47,7 +44,18 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          manylinux: auto
+          manylinux: manylinux_2_28
+          before-script-linux: |
+            # bindgen (used by pg_query) needs clang + glibc headers
+            if command -v dnf &>/dev/null; then dnf install -y clang-devel glibc-devel; \
+            elif command -v apt-get &>/dev/null; then apt-get update && apt-get install -y libclang-dev libc6-dev; \
+            elif command -v apk &>/dev/null; then apk add --no-cache clang-dev musl-dev; fi
+            # Fix bindgen include path for cross-compilation (armv7 etc.)
+            TARGET_INCLUDE=$(find /usr -name "libc-header-start.h" -path "*/bits/*" 2>/dev/null | head -1 | sed 's|/bits/libc-header-start.h||')
+            if [ -n "$TARGET_INCLUDE" ]; then
+              export BINDGEN_EXTRA_CLANG_ARGS="-I${TARGET_INCLUDE}"
+            fi
+            export CFLAGS="${CFLAGS:-} -std=gnu99"
       - name: Upload wheels
         uses: actions/upload-artifact@v6
         with:
@@ -63,9 +71,9 @@ jobs:
             target: x86_64
           - runner: ubuntu-22.04
             target: x86
-          - runner: ubuntu-22.04
+          - runner: ubuntu-22.04-arm
             target: aarch64
-          - runner: ubuntu-22.04
+          - runner: ubuntu-22.04-arm
             target: armv7
     steps:
       - uses: actions/checkout@v6
@@ -79,6 +87,16 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
+          before-script-linux: |
+            # bindgen (used by pg_query) needs clang + headers
+            if command -v apk &>/dev/null; then apk add --no-cache clang-dev musl-dev; \
+            elif command -v dnf &>/dev/null; then dnf install -y clang-devel; \
+            elif command -v apt-get &>/dev/null; then apt-get update && apt-get install -y libclang-dev; fi
+            # Point bindgen at musl sysroot for cross-compilation
+            for sysroot in /usr/local/musl /usr/*-linux-musl*; do
+              [ -d "$sysroot/include" ] && export BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$sysroot" && break
+            done
+            export CFLAGS="${CFLAGS:-} -std=gnu99"
       - name: Upload wheels
         uses: actions/upload-artifact@v6
         with:
