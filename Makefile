@@ -14,7 +14,7 @@ install:
 
 ## Rebuild Rust extension
 build:
-	maturin develop
+	maturin build
 
 ## Run Django migrations
 migrate:
