@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    # Don't run when the release workflow itself pushes the version commit
+    paths-ignore:
+      - "CHANGELOG.md"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          # Use the default GITHUB_TOKEN — ensure repo settings allow
+          # Actions to push to main (Settings → Actions → General →
+          # "Read and write permissions")
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install git-cliff
+        uses: orhun/git-cliff-action@v4
+        id: cliff-version
+        with:
+          config: cliff.toml
+          args: --bump --unreleased --strip header
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Determine next version
+        id: next
+        run: |
+          # git-cliff --bump prints the auto-calculated next tag
+          NEXT_VERSION=$(git-cliff --bump --unreleased 2>&1 | grep -oP 'Bumping version.*to \K[0-9]+\.[0-9]+\.[0-9]+' || true)
+
+          # Fallback: parse from the changelog output header
+          if [ -z "$NEXT_VERSION" ]; then
+            NEXT_VERSION=$(echo "${{ steps.cliff-version.outputs.content }}" | grep -oP '## \[\K[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+          fi
+
+          if [ -z "$NEXT_VERSION" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No version bump detected — skipping release."
+            exit 0
+          fi
+
+          echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "Next version: $NEXT_VERSION"
+
+      - name: Update Cargo.toml version
+        if: steps.next.outputs.skip != 'true'
+        run: |
+          sed -i "s/^version = \".*\"/version = \"${{ steps.next.outputs.version }}\"/" Cargo.toml
+          echo "Updated Cargo.toml to ${{ steps.next.outputs.version }}"
+          grep '^version' Cargo.toml
+
+      - name: Generate changelog
+        if: steps.next.outputs.skip != 'true'
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --tag ${{ steps.next.outputs.tag }} --verbose
+        env:
+          OUTPUT: CHANGELOG.md
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Commit and tag
+        if: steps.next.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml CHANGELOG.md
+          git commit -m "chore(release): ${{ steps.next.outputs.tag }}"
+          git tag "${{ steps.next.outputs.tag }}"
+          git push origin main --follow-tags

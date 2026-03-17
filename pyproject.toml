@@ -26,6 +26,7 @@ dev = [
     "djangorestframework",
     "graphene-django",
     "ruff",
+    "pre-commit",
 ]
 [tool.maturin]
 features = ["pyo3/extension-module"]
