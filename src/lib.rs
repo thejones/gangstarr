@@ -1,3 +1,4 @@
+mod consolidate;
 mod detect;
 mod fingerprint;
 mod group;
@@ -7,6 +8,7 @@ mod resolver_index;
 
 use pyo3::prelude::*;
 
+use crate::consolidate::consolidate_by_callsite;
 use crate::detect::detect_patterns;
 use crate::group::group_by_fingerprint;
 use crate::models::{AnalysisResult, AnalysisSummary, QueryEvent};
@@ -42,6 +44,7 @@ mod gangstarr {
 
         let groups = group_by_fingerprint(&events);
         let findings = detect_patterns(&groups);
+        let consolidated = consolidate_by_callsite(&groups);
 
         let total_queries = events.len();
         let unique_queries = groups.len();
@@ -68,6 +71,7 @@ mod gangstarr {
             },
             groups,
             findings,
+            consolidated,
         };
 
         Ok(result.into_pyobject(py)?)

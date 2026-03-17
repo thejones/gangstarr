@@ -126,7 +126,7 @@ def _format_report(analysis: dict[str, Any], request_context=None) -> str:
     """Format an analysis result into the structured console report."""
     summary = analysis['summary']
     groups = analysis['groups']
-    findings = analysis['findings']
+    consolidated = analysis.get('consolidated', [])
 
     BOLD = "\033[1m"
     RED = "\033[31m"
@@ -153,7 +153,6 @@ def _format_report(analysis: dict[str, Any], request_context=None) -> str:
         if op_name or op_type:
             gql_line = "GRAPHQL OPERATION   \u2192  "
             gql_line += f"{op_type} {op_name}".strip()
-            # Derive root fields from Query.* resolver paths in the analysis
             root_fields = _extract_root_fields_from_groups(groups)
             if root_fields:
                 gql_line += f" \u2192 {', '.join(root_fields)}"
@@ -177,7 +176,11 @@ def _format_report(analysis: dict[str, Any], request_context=None) -> str:
     lines.append("")
 
     # Files section (GraphQL only — show query entry points and resolver locations)
-    if request_context and (getattr(request_context, 'operation_name', '') or getattr(request_context, 'operation_type', '')):
+    has_gql = request_context and (
+        getattr(request_context, 'operation_name', '')
+        or getattr(request_context, 'operation_type', '')
+    )
+    if has_gql:
         query_locations, resolver_locations = _collect_file_locations(groups)
         if query_locations or resolver_locations:
             lines.append(f"{BOLD}Files{RESET}")
@@ -190,41 +193,54 @@ def _format_report(analysis: dict[str, Any], request_context=None) -> str:
                 lines.append(f"  {loc}")
             lines.append("")
 
-    # Findings
-    if findings:
-        lines.append(f"{BOLD}Findings{RESET}")
+    # Consolidated findings by callsite
+    if consolidated:
+        lines.append(f"{BOLD}Consolidated findings by callsite{RESET}")
         lines.append(SINGLE_LINE)
-        for f in findings:
-            sev = f['severity']
-            if sev == 'error':
-                color = RED
-            elif sev == 'warning':
-                color = YELLOW
-            else:
-                color = GREEN
-            loc = ""
-            if f.get('file'):
-                loc = f"{f['file']}:{f.get('line', '')}"
-            # Show resolver_path when available (e.g. "ArtistType.albums → schema.py:10")
-            resolver = f.get('resolver_path', '')
-            if resolver:
-                lines.append(f"{color}[{f['code']}] {f['title']}{RESET}  {resolver} \u2192 {loc}")
-            else:
-                lines.append(f"{color}[{f['code']}] {f['title']}{RESET}  {loc}")
-            lines.append(f"  {DIM}{f['message']}{RESET}")
-            if f.get('suggestion'):
-                lines.append(f"  {GREEN}\u2192 {f['suggestion']}{RESET}")
+        lines.append("")
+        col_hdr = (
+            f"| {'File:Line':<60} | {'Total Q':>7} "
+            f"| {'Dup Groups':>10} | {'Worst Rep':>9} "
+            f"| {'Dup Time':>8} | {'Flags':<10} |"
+        )
+        lines.append(col_hdr)
+        sep = f"|{'-'*62}|{'-'*9}|{'-'*12}|{'-'*11}|{'-'*10}|{'-'*12}|"
+        lines.append(sep)
+        for c in consolidated:
+            loc = f"{c['file']}:{c['line']}"
+            # Append caller chain if available
+            chain = c.get('caller_chain', [])
+            if chain:
+                caller = chain[0]
+                cf = caller['file']
+                caller_file = cf.rsplit('/', 1)[-1] if '/' in cf else cf
+                loc += f" \u2192 {caller_file}:{caller['line']}"
+            worst = f"{c['worst_repeat']}x" if c['worst_repeat'] > 0 else "-"
+            dup_time = f"{c['dup_duration_ms']:.1f}ms" if c['dup_duration_ms'] > 0 else "-"
+            flags = ', '.join(c['flags']) if c['flags'] else ''
+            fl = c.get('flags', [])
+            color = RED if 'HOT' in fl else (YELLOW if 'N+1' in fl else GREEN)
+            row = (
+                f"| {loc:<60} | {c['total_queries']:>7} "
+                f"| {c['dup_groups']:>10} | {worst:>9} "
+                f"| {dup_time:>8} | {flags:<10} |"
+            )
+            lines.append(f"{color}{row}{RESET}")
         lines.append("")
 
-    # Most repeated SQL
+    # Top repeated query groups
     repeated = [g for g in groups if g['count'] > 1]
     if repeated:
-        lines.append(f"{BOLD}Most repeated SQL{RESET}")
+        lines.append(f"{BOLD}Top repeated query groups{RESET}")
         lines.append(SINGLE_LINE)
-        for g in repeated[:10]:  # top 10
+        for g in repeated[:5]:
             top_cs = g['callsites'][0] if g['callsites'] else None
             loc = f"{top_cs['file']}:{top_cs['line']}" if top_cs else "unknown"
-            lines.append(f"\n{YELLOW}[{g['count']}x]{RESET} {loc}")
+            avg = g.get('avg_duration_ms', 0)
+            p50 = g.get('p50_duration_ms', 0)
+            mx = g.get('max_duration_ms', 0)
+            timing = f"{g['total_duration_ms']:.1f}ms total | avg {avg:.1f}ms | p50 {p50:.1f}ms | max {mx:.1f}ms"
+            lines.append(f"\n{YELLOW}[{g['count']}x | {timing}]{RESET} {loc}")
             lines.append(f"{DIM}{g['normalized_sql'][:200]}{RESET}")
         lines.append("")
 
