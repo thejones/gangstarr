@@ -24,6 +24,9 @@ build/
 wheels/
 sdist/
 
+# Gangstarr runtime artifacts
+.gangstarr/
+
 # Databases
 *.sqlite3
 
