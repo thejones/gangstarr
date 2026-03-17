@@ -1,0 +1,51 @@
+{
+  "files": 4,
+  "findings": [
+    {
+      "col": 4,
+      "file": "api_views.py",
+      "line": 11,
+      "message": ".all() fetches every field — consider .only() or .values() to narrow",
+      "rule": "G102",
+      "severity": "warning",
+      "suggestion": "Use .only('field1', 'field2') or .values('field1') to fetch only needed fields"
+    },
+    {
+      "col": 4,
+      "file": "my_module.py",
+      "line": 12,
+      "message": ".all() fetches every field — consider .only() or .values() to narrow",
+      "rule": "G102",
+      "severity": "warning",
+      "suggestion": "Use .only('field1', 'field2') or .values('field1') to fetch only needed fields"
+    },
+    {
+      "col": 8,
+      "file": "my_module.py",
+      "line": 14,
+      "message": "Possible N+1: `album` accesses a related field in a loop — add select_related() or prefetch_related()",
+      "rule": "G101",
+      "severity": "warning",
+      "suggestion": "Add select_related() or prefetch_related() to the outer queryset"
+    },
+    {
+      "col": 8,
+      "file": "schema.py",
+      "line": 35,
+      "message": ".all() fetches every field — consider .only() or .values() to narrow",
+      "rule": "G102",
+      "severity": "warning",
+      "suggestion": "Use .only('field1', 'field2') or .values('field1') to fetch only needed fields"
+    },
+    {
+      "col": 4,
+      "file": "views.py",
+      "line": 20,
+      "message": ".all() fetches every field — consider .only() or .values() to narrow",
+      "rule": "G102",
+      "severity": "warning",
+      "suggestion": "Use .only('field1', 'field2') or .values('field1') to fetch only needed fields"
+    }
+  ],
+  "total": 5
+}

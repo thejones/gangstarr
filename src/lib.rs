@@ -1,10 +1,13 @@
+mod cli;
 mod consolidate;
 mod detect;
 mod fingerprint;
 mod group;
 mod models;
 mod normalize;
+mod reporter;
 mod resolver_index;
+mod static_analysis;
 
 use pyo3::prelude::*;
 
@@ -94,6 +97,20 @@ mod gangstarr {
         let index = resolver_index::scan_files(&files);
         serde_json::to_string(&index)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    /// Run the gangstarr static analysis CLI.
+    ///
+    /// Entry point registered in [project.scripts] as `gangstarr`.
+    /// Reads sys.argv for subcommand and path, runs analysis, exits with code.
+    #[pyfunction]
+    fn gangstarr_check(py: Python<'_>) -> PyResult<()> {
+        let argv: Vec<String> = py.import("sys")?.getattr("argv")?.extract()?;
+        let exit_code = cli::run_check(&argv);
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        let _ = std::io::stderr().flush();
+        std::process::exit(exit_code);
     }
 
     /// Formats the sum of two numbers as string (legacy, kept for backward compat).

@@ -28,6 +28,9 @@ dev = [
     "ruff",
     "pre-commit",
 ]
+[project.scripts]
+gangstarr = "gangstarr.gangstarr:gangstarr_check"
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
