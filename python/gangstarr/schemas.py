@@ -19,6 +19,7 @@ class QueryEvent:
     request_id: str | None = None
     db_alias: str = "default"
     resolver_path: str = ""
+    caller_chain: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -32,6 +33,7 @@ class QueryEvent:
             "request_id": self.request_id,
             "db_alias": self.db_alias,
             "resolver_path": self.resolver_path,
+            "caller_chain": self.caller_chain,
         }
 
 

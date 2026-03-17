@@ -18,11 +18,13 @@ pub fn group_by_fingerprint(events: &[QueryEvent]) -> Vec<GroupedQuery> {
             sample_sql: event.sql.clone(),
             count: 0,
             total_duration_ms: 0.0,
+            durations: Vec::new(),
             callsite_counts: HashMap::new(),
         });
 
         entry.count += 1;
         entry.total_duration_ms += event.duration_ms;
+        entry.durations.push(event.duration_ms);
 
         let callsite = Callsite {
             file: event.file.clone(),
@@ -39,11 +41,20 @@ pub fn group_by_fingerprint(events: &[QueryEvent]) -> Vec<GroupedQuery> {
 
     let mut result: Vec<GroupedQuery> = groups
         .into_values()
-        .map(|b| {
+        .map(|mut b| {
             let avg = if b.count > 0 {
                 b.total_duration_ms / b.count as f64
             } else {
                 0.0
+            };
+
+            b.durations.sort_by(|a, c| a.partial_cmp(c).unwrap_or(std::cmp::Ordering::Equal));
+            let min = b.durations.first().copied().unwrap_or(0.0);
+            let max = b.durations.last().copied().unwrap_or(0.0);
+            let p50 = if b.durations.is_empty() {
+                0.0
+            } else {
+                b.durations[b.durations.len() / 2]
             };
 
             let mut callsites: Vec<CallsiteStats> = b
@@ -67,6 +78,9 @@ pub fn group_by_fingerprint(events: &[QueryEvent]) -> Vec<GroupedQuery> {
                 count: b.count,
                 total_duration_ms: b.total_duration_ms,
                 avg_duration_ms: avg,
+                min_duration_ms: min,
+                max_duration_ms: max,
+                p50_duration_ms: p50,
                 sample_sql: b.sample_sql,
                 callsites,
             }
@@ -83,5 +97,6 @@ struct GroupBuilder {
     sample_sql: String,
     count: usize,
     total_duration_ms: f64,
+    durations: Vec<f64>,
     callsite_counts: HashMap<Callsite, (usize, f64)>,
 }

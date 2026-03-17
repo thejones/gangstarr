@@ -1,8 +1,17 @@
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 
+/// A single frame in a caller chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallerFrame {
+    pub file: String,
+    pub line: u32,
+    pub function: String,
+}
+
 /// A single captured query execution event from the Python layer.
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct QueryEvent {
     pub sql: String,
     pub duration_ms: f64,
@@ -18,6 +27,8 @@ pub struct QueryEvent {
     pub db_alias: String,
     #[serde(default)]
     pub resolver_path: String,
+    #[serde(default)]
+    pub caller_chain: Vec<CallerFrame>,
 }
 
 fn default_db_alias() -> String {
@@ -42,6 +53,9 @@ pub struct GroupedQuery {
     pub count: usize,
     pub total_duration_ms: f64,
     pub avg_duration_ms: f64,
+    pub min_duration_ms: f64,
+    pub max_duration_ms: f64,
+    pub p50_duration_ms: f64,
     pub sample_sql: String,
     pub callsites: Vec<CallsiteStats>,
 }
@@ -93,12 +107,29 @@ pub struct AnalysisSummary {
     pub writes: usize,
 }
 
+/// A callsite with all fingerprint groups consolidated into one row.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConsolidatedCallsite {
+    pub file: String,
+    pub line: u32,
+    pub function: String,
+    pub resolver_path: String,
+    pub total_queries: usize,
+    pub dup_groups: usize,
+    pub worst_repeat: usize,
+    pub dup_duration_ms: f64,
+    pub flags: Vec<String>,
+    pub top_sql: String,
+    pub caller_chain: Vec<CallerFrame>,
+}
+
 /// The complete analysis result returned to Python.
 #[derive(Debug, Clone, Serialize)]
 pub struct AnalysisResult {
     pub summary: AnalysisSummary,
     pub groups: Vec<GroupedQuery>,
     pub findings: Vec<Finding>,
+    pub consolidated: Vec<ConsolidatedCallsite>,
 }
 
 impl<'py> IntoPyObject<'py> for AnalysisResult {

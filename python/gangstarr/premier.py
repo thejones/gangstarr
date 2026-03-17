@@ -80,11 +80,19 @@ class Premier:
         stack_trace = traceback.extract_stack()[:-1]
 
         app_frame = None
+        caller_frames = []
         for frame in reversed(stack_trace):
             filename = frame.filename
             if self.is_application_code(filename):
-                app_frame = frame
-                break
+                if app_frame is None:
+                    app_frame = frame
+                elif len(caller_frames) < 2:
+                    relative = str(os.path.relpath(frame.filename, settings.GANGSTAR_BASE_DIR))
+                    caller_frames.append({
+                        'file': relative,
+                        'line': frame.lineno,
+                        'function': frame.name,
+                    })
 
         if app_frame:
             filename = app_frame.filename
@@ -141,6 +149,7 @@ class Premier:
                     request_id=self.request_context.request_id,
                     db_alias="default",
                     resolver_path=resolver_path,
+                    caller_chain=caller_frames,
                 )
             )
 
