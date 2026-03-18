@@ -1,6 +1,9 @@
 mod cli;
 mod consolidate;
 mod correlate;
+mod pg_royalty;
+mod pg_schema;
+mod pg_stats;
 mod storage;
 mod detect;
 mod fingerprint;
@@ -193,14 +196,33 @@ mod gangstarr {
     ///
     /// Entry point registered in [project.scripts] as `gangstarr`.
     /// Reads sys.argv for subcommand and path, runs analysis, exits with code.
+    /// For `pg-royalty` subcommand, auto-injects --db-url from Django settings.
     #[pyfunction]
     fn gangstarr_check(py: Python<'_>) -> PyResult<()> {
-        let argv: Vec<String> = py.import("sys")?.getattr("argv")?.extract()?;
+        let mut argv: Vec<String> = py.import("sys")?.getattr("argv")?.extract()?;
+
+        // Auto-inject --db-url for pg-royalty if Django settings are available.
+        if argv.get(1).map(|s| s == "pg-royalty").unwrap_or(false)
+            && !argv.iter().any(|a| a == "--db-url")
+        {
+            if let Ok(url) = discover_db_url(py) {
+                if !url.is_empty() {
+                    argv.push("--db-url".to_string());
+                    argv.push(url);
+                }
+            }
+        }
+
         let exit_code = cli::run_check(&argv);
         use std::io::Write;
         let _ = std::io::stdout().flush();
         let _ = std::io::stderr().flush();
         std::process::exit(exit_code);
+    }
+
+    fn discover_db_url(py: Python<'_>) -> PyResult<String> {
+        let module = py.import("gangstarr.pg_royalty")?;
+        module.call_method0("discover_db_url")?.extract()
     }
 
     /// Formats the sum of two numbers as string (legacy, kept for backward compat).

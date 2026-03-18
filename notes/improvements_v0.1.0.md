@@ -46,3 +46,31 @@ TOTAL         99 queries in 1.6795s
 |---------|----------|-------|--------|-------|-------|
 | RESP    | default  |    99 |      0 |    99 |    35 |
 ```
+
+
+project root issue
+The issues is that we do ot really need a "GANGSTAR_BASE_DIR" setting. The middlware is registered already. That can go away and assume it *should* just work.
+
+The other part is the RUST CLI. This is were we should compare 'manage.py`, maybe the root '.git' or something. 
+
+Why? Running the cli `gangstarr check mfr/apps` -> .ganstarr folder created. `gangstarr check mfr/apps/community` -> a new folder. We only want it at the root. 
+
+from pathlib import Path
+import os
+from django.conf import settings
+
+# The project root is typically the directory containing the settings module
+# The 'settings.py' file itself is inside a project-named directory, 
+# which is inside the project root directory (the one with manage.py).
+
+# This gets the absolute path of the settings file
+settings_file_path = Path(settings.SETTINGS_MODULE.replace('.', os.sep) + '.py').resolve()
+
+# This gets the directory containing the settings file (e.g., 'myproject/')
+project_settings_dir = settings_file_path.parent
+
+# This gets the project root directory (the one containing 'manage.py')
+project_root_dir = project_settings_dir.parent
+
+# To use it, convert it to a string for joining paths
+print(f"Project Root: {project_root_dir}")

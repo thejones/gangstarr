@@ -1,6 +1,6 @@
 [package]
 name = "gangstarr"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -17,3 +17,4 @@ serde_json = "1"
 walkdir = "2"
 rusqlite = { version = "0.31", features = ["bundled"] }
 toml = { version = "0.8", default-features = false, features = ["parse"] }
+postgres = { version = "0.19", default-features = false }
