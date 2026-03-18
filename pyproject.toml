@@ -46,6 +46,12 @@ filterwarnings = [
     "ignore::DeprecationWarning:django.utils.encoding:",
 ]
 
+[tool.gangstarr]
+# File/directory patterns to exclude from `gangstarr check`.
+# Patterns match directory names exactly or file names as a substring.
+# Leading/trailing slashes are stripped, so "/tests/" and "tests" are identical.
+exclude = ["tests", "migrations"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 120
