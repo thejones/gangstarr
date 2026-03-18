@@ -23,6 +23,40 @@ struct Pyproject {
     tool: Option<ToolSection>,
 }
 
+/// Walk upward from `start` to find the project root — the nearest directory
+/// that contains `manage.py`, `pyproject.toml`, `setup.py`, or `.git`.
+/// Falls back to `start` itself if no root marker is found.
+fn find_project_root(start: &Path) -> std::path::PathBuf {
+    // Resolve to an absolute path so parent traversal works correctly.
+    let base = match start.canonicalize() {
+        Ok(p) => p,
+        Err(_) => start.to_path_buf(),
+    };
+    // Start from a directory (if given a file, use its parent).
+    let dir = if base.is_dir() {
+        base.clone()
+    } else {
+        base.parent().unwrap_or(&base).to_path_buf()
+    };
+
+    const MARKERS: &[&str] = &["manage.py", "pyproject.toml", "setup.py", ".git"];
+
+    let mut current = dir.as_path();
+    loop {
+        for marker in MARKERS {
+            if current.join(marker).exists() {
+                return current.to_path_buf();
+            }
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => break,
+        }
+    }
+    // No marker found — use the original starting directory.
+    dir
+}
+
 /// Read `[tool.gangstarr]` `exclude` from `pyproject.toml` in `dir`, if present.
 fn read_project_excludes(dir: &Path) -> Vec<String> {
     let toml_path = dir.join("pyproject.toml");
@@ -88,23 +122,18 @@ pub fn run_check(argv: &[String]) -> i32 {
                 return 2;
             }
 
+            // Find the project root for .gangstarr/ placement.
+            // Always walk upward from the scanned path so that
+            // `gangstarr check mfr/apps/community` and
+            // `gangstarr check mfr/apps` both land in the same root folder.
+            let project_root = find_project_root(path);
             let output_dir = parse_flag(argv, "--output-dir").unwrap_or_else(|| {
-                if path.is_dir() {
-                    path.join(".gangstarr").to_string_lossy().into_owned()
-                } else {
-                    // Single file: put .gangstarr next to it
-                    path.parent()
-                        .unwrap_or(Path::new("."))
-                        .join(".gangstarr")
-                        .to_string_lossy()
-                        .into_owned()
-                }
+                project_root.join(".gangstarr").to_string_lossy().into_owned()
             });
 
             // Merge --exclude flags with [tool.gangstarr] exclude from pyproject.toml.
             let mut excludes = parse_flags(argv, "--exclude");
-            let project_root = if path.is_dir() { path } else { path.parent().unwrap_or(Path::new(".")) };
-            excludes.extend(read_project_excludes(project_root));
+            excludes.extend(read_project_excludes(&project_root));
 
             let findings = static_analysis::step_in_the_arena(path, &excludes);
             reporter::report(&findings, &output_dir);
@@ -150,15 +179,8 @@ pub fn run_check(argv: &[String]) -> i32 {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(20);
 
-            let output_dir = if path.is_dir() {
-                path.join(".gangstarr").to_string_lossy().into_owned()
-            } else {
-                path.parent()
-                    .unwrap_or(Path::new("."))
-                    .join(".gangstarr")
-                    .to_string_lossy()
-                    .into_owned()
-            };
+            let project_root = find_project_root(path);
+            let output_dir = project_root.join(".gangstarr").to_string_lossy().into_owned();
             let db_path = format!("{}/gangstarr.db", output_dir);
 
             match storage::fetch_run_history(&db_path, limit) {
@@ -242,8 +264,9 @@ fn print_usage() {
     println!("    gangstarr history [path]             Show analysis run history");
     println!();
     println!("OPTIONS:");
-    println!("    --output-dir <dir>                  Output directory for findings.json");
-    println!("                                        (default: <path>/.gangstarr)");
+    println!("    --output-dir <dir>                  Output directory (default: project root/.gangstarr)");
+    println!("                                        Project root is auto-detected via manage.py /");
+    println!("                                        pyproject.toml / .git walking up from <path>.");
     println!("    --exclude <pattern>                 Skip files/dirs matching pattern (repeatable).");
     println!("                                        Patterns match directory names exactly or");
     println!("                                        file names as a substring.  Leading/trailing");
