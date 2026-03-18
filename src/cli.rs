@@ -6,6 +6,37 @@ use crate::reporter;
 use crate::static_analysis;
 use crate::storage;
 
+// ── pyproject.toml config ───────────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize, Default)]
+struct GangstarrConfig {
+    exclude: Option<Vec<String>>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct ToolSection {
+    gangstarr: Option<GangstarrConfig>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct Pyproject {
+    tool: Option<ToolSection>,
+}
+
+/// Read `[tool.gangstarr]` `exclude` from `pyproject.toml` in `dir`, if present.
+fn read_project_excludes(dir: &Path) -> Vec<String> {
+    let toml_path = dir.join("pyproject.toml");
+    let content = match std::fs::read_to_string(&toml_path) {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    let cfg: Pyproject = toml::from_str(&content).unwrap_or_default();
+    cfg.tool
+        .and_then(|t| t.gangstarr)
+        .and_then(|g| g.exclude)
+        .unwrap_or_default()
+}
+
 /// Convert Unix milliseconds to an ISO 8601 UTC string.
 /// Uses Howard Hinnant's civil-calendar algorithm — no external crates needed.
 fn millis_to_iso(millis: u128) -> String {
@@ -70,7 +101,12 @@ pub fn run_check(argv: &[String]) -> i32 {
                 }
             });
 
-            let findings = static_analysis::step_in_the_arena(path);
+            // Merge --exclude flags with [tool.gangstarr] exclude from pyproject.toml.
+            let mut excludes = parse_flags(argv, "--exclude");
+            let project_root = if path.is_dir() { path } else { path.parent().unwrap_or(Path::new(".")) };
+            excludes.extend(read_project_excludes(project_root));
+
+            let findings = static_analysis::step_in_the_arena(path, &excludes);
             reporter::report(&findings, &output_dir);
 
             // ── Persist to SQLite ─────────────────────────────────────────
@@ -161,6 +197,24 @@ fn parse_flag(argv: &[String], flag: &str) -> Option<String> {
     None
 }
 
+/// Collect every value associated with a repeatable flag, e.g.
+/// `--exclude tests --exclude test_` → `["tests", "test_"]`.
+fn parse_flags(argv: &[String], flag: &str) -> Vec<String> {
+    let mut results = Vec::new();
+    let mut i = 0;
+    while i < argv.len() {
+        if argv[i] == flag {
+            if let Some(val) = argv.get(i + 1) {
+                results.push(val.clone());
+                i += 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    results
+}
+
 fn print_history_table(runs: &[serde_json::Value]) {
     println!(
         "{:<18}  {:<8}  {:<26}  {:>7}  {:>8}",
@@ -190,6 +244,12 @@ fn print_usage() {
     println!("OPTIONS:");
     println!("    --output-dir <dir>                  Output directory for findings.json");
     println!("                                        (default: <path>/.gangstarr)");
+    println!("    --exclude <pattern>                 Skip files/dirs matching pattern (repeatable).");
+    println!("                                        Patterns match directory names exactly or");
+    println!("                                        file names as a substring.  Leading/trailing");
+    println!("                                        slashes are stripped, so '/tests/' = 'tests'.");
+    println!("                                        Also reads [tool.gangstarr] exclude from");
+    println!("                                        pyproject.toml in the scanned directory.");
     println!("    --limit N                           Max history rows to show (default: 20)");
     println!();
     println!("RULES:");

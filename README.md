@@ -211,12 +211,36 @@ gangstarr check path/to/myproject/
 # Scan a single file
 gangstarr check path/to/views.py
 
+# Skip test directories and files
+gangstarr check path/to/myproject/ --exclude tests --exclude test_
+
 # Custom output directory
 gangstarr check path/to/myproject/ --output-dir /tmp/analysis
 ```
 
 Findings are printed in Ruff-style format and saved to `.gangstarr/static/findings.json`.
 Each run is also stored in `.gangstarr/gangstarr.db` for historical tracking and cross-referencing.
+
+### Excluding paths from static analysis
+
+`--exclude <pattern>` can be repeated and strips leading/trailing slashes, so `'/tests/'` and `'tests'` are equivalent.
+
+Patterns are matched against:
+1. **Directory names** — exact component match (e.g. `tests` skips any directory named `tests`)
+2. **File names** — substring match (e.g. `test_` skips `test_views.py`, `test_models.py`, etc.)
+
+For persistent project-level exclusions, add a `[tool.gangstarr]` section to your `pyproject.toml` in the project root. The CLI reads it automatically:
+
+```toml
+[tool.gangstarr]
+exclude = [
+    "tests",       # skip any directory named 'tests'
+    "test_",       # skip any file whose name contains 'test_'
+    "conftest.py", # skip conftest files
+]
+```
+
+> **Note:** `GANGSTARR_EXCLUDE_PATHS` is a *separate* setting used by `MomentOfTruthMiddleware` to skip **HTTP request URL paths** (e.g. `/static/`, `/healthz/`). It has no effect on `gangstarr check`.
 
 ### View run history
 
