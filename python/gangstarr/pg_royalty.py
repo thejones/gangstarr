@@ -9,6 +9,7 @@ All logic here is read-only; we never touch the database.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -39,13 +40,16 @@ def _find_django_settings_module() -> Optional[str]:
         try:
             content = manage.read_text(encoding="utf-8", errors="ignore")
             for line in content.splitlines():
-                if "DJANGO_SETTINGS_MODULE" in line and ("'" in line or '"' in line):
-                    # Extract the quoted module name.
-                    for delim in ('"', "'"):
-                        parts = line.split(delim)
-                        for p in parts:
-                            if "." in p and not p.startswith("-"):
-                                return p
+                if "DJANGO_SETTINGS_MODULE" not in line:
+                    continue
+                # Match the quoted value after DJANGO_SETTINGS_MODULE — must be
+                # a valid dotted Python identifier (word chars and dots only).
+                m = re.search(
+                    r"DJANGO_SETTINGS_MODULE.*?['\"]([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)['\"]",
+                    line,
+                )
+                if m:
+                    return m.group(1)
         except OSError:
             pass
 
