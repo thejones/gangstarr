@@ -1,9 +1,14 @@
-.PHONY: tree test install build migrate loaddata dev runserver \
+.PHONY: help tree test install build migrate loaddata dev runserver \
 	lint lint-fix bump-patch bump-minor bump-major changelog precommit-install \
-	db-up db-down db-reset db-populate db-shell pg-exec
+	db-up db-down db-reset db-populate db-shell pg-exec \
+	check pg-royalty history
 
 MANAGE = python python/gangstarr/testapp/manage.py
 PG_ENV = PGDATABASE=gangstarr PGUSER=gangstarr PGPASSWORD=gangstarr PGHOST=localhost PGPORT=5433
+
+## Show available commands
+help:
+	@awk '/^## /{desc=substr($$0,4)} /^[a-zA-Z_-]+:/{if(desc){printf "  \033[36m%-20s\033[0m %s\n", $$1, desc; desc=""}}' $(MAKEFILE_LIST)
 
 ## Show project file tree
 tree:
@@ -29,12 +34,10 @@ migrate:
 loaddata:
 	source .venv/bin/activate && $(PG_ENV) $(MANAGE) loaddata chinook
 
-## Start Docker (if needed), bring up DB, migrate, load fixtures, then run dev server
+## Fresh DB + migrate + load fixtures, then run dev server
 dev:
 	@docker info > /dev/null 2>&1 || (open -a Docker && echo "Starting Docker Desktop…" && until docker info > /dev/null 2>&1; do sleep 2; done)
-	$(MAKE) db-up
-	$(MAKE) migrate
-	$(MAKE) loaddata
+	$(MAKE) db-reset
 	source .venv/bin/activate && $(PG_ENV) python dev.py
 
 ## Run Django dev server (no Rust watch)
@@ -43,18 +46,9 @@ runserver:
 
 ## ── Postgres (Supabase Docker) ──────────────────────────────────────
 
-## Start Supabase Postgres container
+## Start Supabase Postgres container (init.sql runs automatically on fresh volume)
 db-up:
 	docker compose up -d --wait
-	@echo "Waiting for Postgres…"
-	@until docker compose exec db pg_isready -U gangstarr -q 2>/dev/null; do sleep 1; done
-	@docker compose exec -e PGPASSWORD=gangstarr db psql -h localhost -U gangstarr -d postgres -tc \
-		"SELECT 1 FROM pg_database WHERE datname = 'gangstarr'" 2>/dev/null | grep -q 1 \
-		|| docker compose exec -e PGPASSWORD=gangstarr db createdb -h localhost -U gangstarr gangstarr
-	@docker compose exec -e PGPASSWORD=gangstarr db psql -h localhost -U gangstarr -d gangstarr \
-		-c "CREATE ROLE supabase_admin" 2>/dev/null || true
-	@docker compose exec -e PGPASSWORD=gangstarr db psql -h localhost -U gangstarr -d gangstarr \
-		-c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements; CREATE EXTENSION IF NOT EXISTS postgis;"
 	@echo "Postgres is ready on localhost:5433"
 
 ## Stop Supabase Postgres container
@@ -77,6 +71,20 @@ db-shell:
 ## Open psql shell in a dedicated client container
 pg-exec:
 	docker compose run --rm psql
+
+## ── Gangstarr CLI ───────────────────────────────────────────────────
+
+## Run static analysis on project (gangstarr check .)
+check:
+	source .venv/bin/activate && gangstarr check .
+
+## Inspect Postgres query stats (gangstarr pg-royalty)
+pg-royalty:
+	source .venv/bin/activate && $(PG_ENV) gangstarr pg-royalty
+
+## Show run history (gangstarr history)
+history:
+	source .venv/bin/activate && gangstarr history
 
 ## ── Code quality ────────────────────────────────────────────────────
 

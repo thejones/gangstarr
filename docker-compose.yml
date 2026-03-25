@@ -1,15 +1,16 @@
 services:
   db:
-    image: supabase/postgres:17.6.1.098
+    image: postgres:17
     ports:
       - "5433:5432"
-    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    command: postgres -c shared_preload_libraries=pg_stat_statements
     environment:
       POSTGRES_USER: gangstarr
       POSTGRES_PASSWORD: gangstarr
       POSTGRES_DB: gangstarr
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gangstarr"]
       interval: 5s
