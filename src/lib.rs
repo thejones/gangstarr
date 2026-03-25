@@ -4,6 +4,7 @@ mod correlate;
 mod pg_royalty;
 mod pg_schema;
 mod pg_stats;
+mod steeze;
 mod storage;
 mod detect;
 mod fingerprint;

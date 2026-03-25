@@ -73,6 +73,14 @@ CREATE TABLE IF NOT EXISTS pg_findings (
     suggestion  TEXT,
     created_at  TEXT    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS ai_briefings (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at    TEXT NOT NULL,
+    run_ids       TEXT NOT NULL,
+    briefing_json TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending'
+);
 ";
 
 // ── Connection + migration ────────────────────────────────────────────────────
@@ -365,6 +373,48 @@ pub fn insert_pg_findings(
         ])?;
     }
     Ok(())
+}
+
+// ── ai_briefings ──────────────────────────────────────────────────────────
+
+/// Insert a new AI briefing into the database.
+pub fn insert_ai_briefing(
+    conn: &Connection,
+    created_at: &str,
+    run_ids: &str,
+    briefing_json: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO ai_briefings (created_at, run_ids, briefing_json, status)
+         VALUES (?1, ?2, ?3, 'pending')",
+        params![created_at, run_ids, briefing_json],
+    )?;
+    Ok(())
+}
+
+/// Fetch the most recent AI briefing.
+pub fn fetch_latest_briefing(db_path: &str) -> Result<Option<Value>> {
+    let conn = ensure_db(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, created_at, run_ids, briefing_json, status
+         FROM ai_briefings
+         ORDER BY created_at DESC
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "id":            row.get::<_, i64>(0)?,
+            "created_at":    row.get::<_, String>(1)?,
+            "run_ids":       row.get::<_, String>(2)?,
+            "briefing_json": row.get::<_, String>(3)?,
+            "status":        row.get::<_, String>(4)?,
+        }))
+    })?;
+    match rows.next() {
+        Some(Ok(v)) => Ok(Some(v)),
+        Some(Err(e)) => Err(e),
+        None => Ok(None),
+    }
 }
 
 /// Fetch all findings across static, runtime, and pg sources, most recent first.

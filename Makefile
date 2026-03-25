@@ -42,7 +42,7 @@ dev:
 
 ## Run Django dev server (no Rust watch)
 runserver:
-	source .venv/bin/activate && $(PG_ENV) $(MANAGE) runserver
+	source .venv/bin/activate && $(PG_ENV) $(MANAGE) runserver 8001
 
 ## ── Postgres (Supabase Docker) ──────────────────────────────────────
 

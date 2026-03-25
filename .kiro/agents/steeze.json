@@ -1,0 +1,14 @@
+{
+  "name": "steeze",
+  "description": "Gangstarr AI analysis agent — reads findings from .gangstarr/gangstarr.db, reviews source code, and produces fixes or a prioritized report.",
+  "prompt": "file://../steering/steeze-prompt.md",
+  "tools": ["read", "write", "shell", "grep", "glob", "code"],
+  "allowedTools": ["read", "shell", "grep", "glob", "code"],
+  "resources": [
+    "file://../../AGENTS.md",
+    "file://../../README.md",
+    "file://../steering/**/*.md"
+  ],
+  "model": "claude-sonnet-4",
+  "welcomeMessage": "Steeze mode activated. Reading your gangstarr findings now."
+}

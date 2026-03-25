@@ -20,6 +20,12 @@ impl Rule for G102 {
     fn check(&self, file: &str, source: &str) -> Vec<StaticFinding> {
         let mut findings = Vec::new();
 
+        // Detect GraphQL context: the suggestion changes because .only()
+        // isn't practical when the client controls field selection.
+        let is_graphql = source.contains("DjangoObjectType")
+            || source.contains("graphene")
+            || source.contains("ObjectType");
+
         for (i, line) in source.lines().enumerate() {
             if is_comment_or_blank(line) {
                 continue;
@@ -35,16 +41,26 @@ impl Rule for G102 {
                     continue;
                 }
 
+                let (message, suggestion) = if is_graphql {
+                    (
+                        ".all() fetches every field — in GraphQL the client controls field selection".to_string(),
+                        "Use graphene-django-optimizer to auto-apply .only() based on the query, or narrow fields via info.field_nodes".to_string(),
+                    )
+                } else {
+                    (
+                        ".all() fetches every field — consider .only() or .values() to narrow".to_string(),
+                        "Use .only('field1', 'field2') or .values('field1') to fetch only needed fields".to_string(),
+                    )
+                };
+
                 findings.push(StaticFinding {
                     rule: "G102".to_string(),
-                    message: ".all() fetches every field — consider .only() or .values() to narrow".to_string(),
+                    message,
                     severity: Severity::Warning,
                     file: file.to_string(),
                     line: i + 1,
                     col: indent_of(line),
-                    suggestion: Some(
-                        "Use .only('field1', 'field2') or .values('field1') to fetch only needed fields".to_string(),
-                    ),
+                    suggestion: Some(suggestion),
                 });
             }
         }
