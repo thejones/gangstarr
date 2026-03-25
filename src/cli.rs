@@ -199,6 +199,9 @@ pub fn run_check(argv: &[String]) -> i32 {
         "pg-royalty" => {
             pg_royalty::run(argv)
         }
+        "steeze" => {
+            crate::steeze::run(argv)
+        }
         "help" | "--help" | "-h" => {
             print_usage();
             0
@@ -303,6 +306,7 @@ fn print_usage() {
     println!("    gangstarr check <path>              Scan Python files for ORM anti-patterns");
     println!("    gangstarr history [path]             Show analysis run history");
     println!("    gangstarr pg-royalty                 Analyze a live Postgres DB (see --help)");
+    println!("    gangstarr steeze [path]              Build AI briefing from findings");
     println!();
     println!("OPTIONS (check):");
     println!("    --output-dir <dir>                  Output directory (default: <path>/.gangstarr)");
@@ -320,12 +324,16 @@ fn print_usage() {
     println!("    G105  Queryset truthiness check — use .exists()");
     println!("    G106  Python-side aggregation — use .aggregate() or .annotate()");
     println!("    G107  .save() in a loop — use bulk_create() or bulk_update()");
+    println!("    G108  GraphQL N+1 — implicit resolver on related field without DataLoader");
     println!();
     println!("POSTGRES RULES (pg-royalty):");
     println!("    G201  Missing index / missing PK / wide table");
     println!("    G202  High rows/call ratio — possible .all() or missing LIMIT");
     println!("    G203  Unused index");
     println!("    G204  Unstable query plan — high stddev/mean execution time");
+    println!();
+    println!("OPTIONS (steeze):");
+    println!("    --kiro                              Store briefing + launch kiro-cli agent");
     println!();
     println!("EXIT CODES:");
     println!("    0  No issues found");

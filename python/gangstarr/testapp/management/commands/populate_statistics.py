@@ -77,7 +77,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--rounds", type=int, default=20, help="Number of request rounds")
         parser.add_argument("--concurrency", type=int, default=4, help="Concurrent workers")
-        parser.add_argument("--host", default="localhost:8000", help="Dev server host:port")
+        parser.add_argument("--host", default="localhost:8001", help="Dev server host:port")
         parser.add_argument("--skip-fixture", action="store_true", help="Skip loading chinook fixture")
 
     def handle(self, *args, **options):

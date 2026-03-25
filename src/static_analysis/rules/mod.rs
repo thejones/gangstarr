@@ -5,6 +5,7 @@ mod g104;
 mod g105;
 mod g106;
 mod g107;
+mod g108;
 
 use crate::static_analysis::models::StaticFinding;
 
@@ -21,6 +22,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(g105::G105::new()),
         Box::new(g106::G106::new()),
         Box::new(g107::G107),
+        Box::new(g108::G108::new()),
     ]
 }
 

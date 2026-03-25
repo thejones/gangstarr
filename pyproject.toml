@@ -25,6 +25,7 @@ dev = [
     "watchfiles",
     "djangorestframework",
     "graphene-django",
+    "aiodataloader",
     "ruff",
     "pre-commit",
     "psycopg[binary]",

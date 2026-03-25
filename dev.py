@@ -31,7 +31,7 @@ def main():
 
     # Run Django dev server (handles its own Python reload)
     subprocess.run(
-        [sys.executable, "python/gangstarr/testapp/manage.py", "runserver"],
+        [sys.executable, "python/gangstarr/testapp/manage.py", "runserver", "8001"],
     )
 
 
