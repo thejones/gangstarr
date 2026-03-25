@@ -108,7 +108,6 @@ pub fn run_check(argv: &[String]) -> i32 {
             excludes.extend(read_project_excludes(project_root));
 
             let findings = static_analysis::step_in_the_arena(path, &excludes);
-            reporter::report(&findings, &output_dir);
 
             // ── Persist to SQLite ─────────────────────────────────────────
             let millis = SystemTime::now()
@@ -124,10 +123,16 @@ pub fn run_check(argv: &[String]) -> i32 {
                 .filter_map(|f| serde_json::to_value(f).ok())
                 .collect();
 
-            if let Ok(conn) = storage::ensure_db(&db_path) {
+            let db_stored = if let Ok(conn) = storage::ensure_db(&db_path) {
                 let _ = storage::insert_run(&conn, &run_id, &created_at, "static", path_str);
                 let _ = storage::insert_static_findings(&conn, &run_id, &findings_json);
-            }
+                true
+            } else {
+                eprintln!("warning: could not create {}", db_path);
+                false
+            };
+
+            reporter::report(&findings, db_stored);
 
             // ── Cross-reference with any existing runtime evidence ────────
             if let Ok(correlations) = correlate::correlate_run(&db_path, &run_id) {

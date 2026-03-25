@@ -86,7 +86,16 @@ CREATE TABLE IF NOT EXISTS ai_briefings (
 // ── Connection + migration ────────────────────────────────────────────────────
 
 /// Open (or create) the SQLite database and ensure schema is current.
+///
+/// Creates the parent directory if it does not exist.
 pub fn ensure_db(db_path: &str) -> Result<Connection> {
+    if let Some(parent) = std::path::Path::new(db_path).parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).map_err(|_| {
+                rusqlite::Error::InvalidPath(parent.to_path_buf())
+            })?;
+        }
+    }
     let conn = Connection::open(db_path)?;
     conn.execute_batch(CREATE_SCHEMA)?;
     Ok(conn)
