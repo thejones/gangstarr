@@ -2,7 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.0] - 2026-03-18
+## [0.1.0] - 2026-03-25
+
+### Bug Fixes
+
+- Truncate file name/line num([a6c6958](https://github.com/thejones/gangstarr/commit/a6c6958793086f3d270c9309da2d557641ea2ed9))
 
 ### Documentation
 
