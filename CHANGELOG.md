@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - Add gangstarr static analysis files([2b7b1b7](https://github.com/thejones/gangstarr/commit/2b7b1b766a58af57ea0f47a30852437f67c16baf))
 - V0.3.0 — SQLite storage + cross-referencing (TakeItPersonal + AboveTheClouds)([d9b7560](https://github.com/thejones/gangstarr/commit/d9b75605bf76188e7797604df80657409e7832cc))
 - Add --exclude flag and pyproject.toml [tool.gangstarr] config to gangstarr check([e2a5dcd](https://github.com/thejones/gangstarr/commit/e2a5dcd40d9711512dd5d86e4ad59b6665263263))
+- V0.5.0 — pg-royalty Postgres introspection (JazzThing)([1e79215](https://github.com/thejones/gangstarr/commit/1e79215ef9843b038ae28d057b261fd111d075f7))
 
 ### Miscellaneous
 
