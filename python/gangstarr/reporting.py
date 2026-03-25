@@ -198,13 +198,14 @@ def _format_report(analysis: dict[str, Any], request_context=None) -> str:
         lines.append(f"{BOLD}Consolidated findings by callsite{RESET}")
         lines.append(SINGLE_LINE)
         lines.append("")
+        loc_col_width = 60
         col_hdr = (
-            f"| {'File:Line':<60} | {'Total Q':>7} "
+            f"| {'File:Line':<{loc_col_width}} | {'Total Q':>7} "
             f"| {'Dup Groups':>10} | {'Worst Rep':>9} "
             f"| {'Dup Time':>8} | {'Flags':<10} |"
         )
         lines.append(col_hdr)
-        sep = f"|{'-'*62}|{'-'*9}|{'-'*12}|{'-'*11}|{'-'*10}|{'-'*12}|"
+        sep = f"|{'-'*(loc_col_width+2)}|{'-'*9}|{'-'*12}|{'-'*11}|{'-'*10}|{'-'*12}|"
         lines.append(sep)
         for c in consolidated:
             loc = f"{c['file']}:{c['line']}"
@@ -215,13 +216,15 @@ def _format_report(analysis: dict[str, Any], request_context=None) -> str:
                 cf = caller['file']
                 caller_file = cf.rsplit('/', 1)[-1] if '/' in cf else cf
                 loc += f" \u2192 {caller_file}:{caller['line']}"
+            if len(loc) > loc_col_width:
+                loc = "\u2026" + loc[-(loc_col_width - 1):]
             worst = f"{c['worst_repeat']}x" if c['worst_repeat'] > 0 else "-"
             dup_time = f"{c['dup_duration_ms']:.1f}ms" if c['dup_duration_ms'] > 0 else "-"
             flags = ', '.join(c['flags']) if c['flags'] else ''
             fl = c.get('flags', [])
             color = RED if 'HOT' in fl else (YELLOW if 'N+1' in fl else GREEN)
             row = (
-                f"| {loc:<60} | {c['total_queries']:>7} "
+                f"| {loc:<{loc_col_width}} | {c['total_queries']:>7} "
                 f"| {c['dup_groups']:>10} | {worst:>9} "
                 f"| {dup_time:>8} | {flags:<10} |"
             )
