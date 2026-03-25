@@ -2,6 +2,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::correlate;
+use crate::pg_royalty;
 use crate::reporter;
 use crate::static_analysis;
 use crate::storage;
@@ -146,7 +147,8 @@ pub fn run_check(argv: &[String]) -> i32 {
                 .unwrap_or(".");
 
             let path = Path::new(path_str);
-            let limit: usize = parse_flag(argv, "--limit")
+            let limit: usize = parse_flag(argv, "--count")
+                .or_else(|| parse_flag(argv, "--limit"))
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(20);
 
@@ -161,20 +163,41 @@ pub fn run_check(argv: &[String]) -> i32 {
             };
             let db_path = format!("{}/gangstarr.db", output_dir);
 
-            match storage::fetch_run_history(&db_path, limit) {
-                Ok(runs) if runs.is_empty() => {
-                    println!("No runs recorded. Run `gangstarr check <path>` first.");
-                    0
+            // --findings: unified per-finding view across all sources
+            if argv.iter().any(|a| a == "--findings") {
+                match storage::fetch_all_findings(&db_path, limit) {
+                    Ok(findings) if findings.is_empty() => {
+                        println!("No findings recorded yet.");
+                        0
+                    }
+                    Ok(findings) => {
+                        print_findings_list(&findings);
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("error: could not read findings: {}", e);
+                        2
+                    }
                 }
-                Ok(runs) => {
-                    print_history_table(&runs);
-                    0
-                }
-                Err(e) => {
-                    eprintln!("error: could not read history: {}", e);
-                    2
+            } else {
+                match storage::fetch_run_history(&db_path, limit) {
+                    Ok(runs) if runs.is_empty() => {
+                        println!("No runs recorded. Run `gangstarr check <path>` first.");
+                        0
+                    }
+                    Ok(runs) => {
+                        print_history_table(&runs);
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("error: could not read history: {}", e);
+                        2
+                    }
                 }
             }
+        }
+        "pg-royalty" => {
+            pg_royalty::run(argv)
         }
         "help" | "--help" | "-h" => {
             print_usage();
@@ -234,25 +257,62 @@ fn print_history_table(runs: &[serde_json::Value]) {
     }
 }
 
+fn print_findings_list(findings: &[serde_json::Value]) {
+    println!(
+        "{:<8} {:<8} {:<10} {:<28} {}",
+        "Source", "Code", "Severity", "Location", "Message"
+    );
+    println!("{}", "─".repeat(100));
+    for f in findings {
+        let source = f["source"].as_str().unwrap_or("?");
+        let code = f["code"].as_str().unwrap_or("?");
+        let severity = f["severity"].as_str().unwrap_or("?");
+        let message = f["message"].as_str().unwrap_or("?");
+
+        let location = if let Some(file) = f["file"].as_str() {
+            let line = f["line"].as_i64().unwrap_or(0);
+            format!("{}:{}", file.rsplit('/').next().unwrap_or(file), line)
+        } else if let Some(table) = f["table_name"].as_str() {
+            let col = f["column_name"].as_str().unwrap_or("");
+            if col.is_empty() { table.to_string() } else { format!("{}.{}", table, col) }
+        } else {
+            "—".to_string()
+        };
+
+        let color = match severity {
+            "error" => "\x1b[31m",
+            "warning" => "\x1b[33m",
+            _ => "\x1b[2m",
+        };
+        let msg_short = if message.len() > 55 {
+            format!("{}…", &message[..54])
+        } else {
+            message.to_string()
+        };
+        println!(
+            "{}{:<8} {:<8} {:<10} {:<28} {}\x1b[0m",
+            color, source, code, severity, location, msg_short
+        );
+    }
+}
+
 fn print_usage() {
-    println!("gangstarr — Django ORM static analysis");
+    println!("gangstarr — Django ORM performance profiler");
     println!();
     println!("USAGE:");
     println!("    gangstarr check <path>              Scan Python files for ORM anti-patterns");
     println!("    gangstarr history [path]             Show analysis run history");
+    println!("    gangstarr pg-royalty                 Analyze a live Postgres DB (see --help)");
     println!();
-    println!("OPTIONS:");
-    println!("    --output-dir <dir>                  Output directory for findings.json");
-    println!("                                        (default: <path>/.gangstarr)");
-    println!("    --exclude <pattern>                 Skip files/dirs matching pattern (repeatable).");
-    println!("                                        Patterns match directory names exactly or");
-    println!("                                        file names as a substring.  Leading/trailing");
-    println!("                                        slashes are stripped, so '/tests/' = 'tests'.");
-    println!("                                        Also reads [tool.gangstarr] exclude from");
-    println!("                                        pyproject.toml in the scanned directory.");
-    println!("    --limit N                           Max history rows to show (default: 20)");
+    println!("OPTIONS (check):");
+    println!("    --output-dir <dir>                  Output directory (default: <path>/.gangstarr)");
+    println!("    --exclude <pattern>                 Skip files/dirs matching pattern (repeatable)");
     println!();
-    println!("RULES:");
+    println!("OPTIONS (history):");
+    println!("    --findings                          Show per-finding detail (all sources)");
+    println!("    --count N / --limit N               Max rows to show (default: 20)");
+    println!();
+    println!("STATIC RULES:");
     println!("    G101  Possible N+1 — related field accessed in loop or query inside loop");
     println!("    G102  .all() without .only()/.values() — over-fetching fields");
     println!("    G103  Python-side filtering — use .filter() instead of list comprehension");
@@ -260,6 +320,12 @@ fn print_usage() {
     println!("    G105  Queryset truthiness check — use .exists()");
     println!("    G106  Python-side aggregation — use .aggregate() or .annotate()");
     println!("    G107  .save() in a loop — use bulk_create() or bulk_update()");
+    println!();
+    println!("POSTGRES RULES (pg-royalty):");
+    println!("    G201  Missing index / missing PK / wide table");
+    println!("    G202  High rows/call ratio — possible .all() or missing LIMIT");
+    println!("    G203  Unused index");
+    println!("    G204  Unstable query plan — high stddev/mean execution time");
     println!();
     println!("EXIT CODES:");
     println!("    0  No issues found");

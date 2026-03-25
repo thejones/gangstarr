@@ -61,6 +61,18 @@ CREATE TABLE IF NOT EXISTS field_usage (
     endpoint   TEXT,
     serializer TEXT
 );
+
+CREATE TABLE IF NOT EXISTS pg_findings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      TEXT    NOT NULL REFERENCES runs(run_id),
+    code        TEXT    NOT NULL,
+    severity    TEXT    NOT NULL,
+    table_name  TEXT,
+    column_name TEXT,
+    message     TEXT    NOT NULL,
+    suggestion  TEXT,
+    created_at  TEXT    NOT NULL
+);
 ";
 
 // ── Connection + migration ────────────────────────────────────────────────────
@@ -311,6 +323,86 @@ pub fn fetch_field_usage_by_model(conn: &Connection) -> Result<Vec<Value>> {
         Ok(serde_json::json!({
             "model":  row.get::<_, String>(0)?,
             "fields": fields,
+        }))
+    })?;
+    rows.collect()
+}
+
+// ── pg_findings ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct PgFinding {
+    pub code: String,
+    pub severity: String,
+    pub table_name: Option<String>,
+    pub column_name: Option<String>,
+    pub message: String,
+    pub suggestion: Option<String>,
+}
+
+/// Batch-insert Postgres introspection findings for a run.
+pub fn insert_pg_findings(
+    conn: &Connection,
+    run_id: &str,
+    created_at: &str,
+    findings: &[PgFinding],
+) -> Result<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO pg_findings
+             (run_id, code, severity, table_name, column_name, message, suggestion, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    )?;
+    for f in findings {
+        stmt.execute(params![
+            run_id,
+            f.code,
+            f.severity,
+            f.table_name,
+            f.column_name,
+            f.message,
+            f.suggestion,
+            created_at,
+        ])?;
+    }
+    Ok(())
+}
+
+/// Fetch all findings across static, runtime, and pg sources, most recent first.
+/// Used by `gangstarr history --findings`.
+pub fn fetch_all_findings(db_path: &str, limit: usize) -> Result<Vec<Value>> {
+    let conn = ensure_db(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT 'static' AS source, r.created_at, sf.rule AS code, sf.severity,
+                sf.file, sf.line, sf.message, NULL AS table_name, NULL AS column_name
+         FROM static_findings sf
+         JOIN runs r ON r.run_id = sf.run_id
+         UNION ALL
+         SELECT 'runtime', r.created_at, rf.code, rf.severity,
+                rf.file, rf.line, rf.message, NULL, NULL
+         FROM runtime_findings rf
+         JOIN runs r ON r.run_id = rf.run_id
+         UNION ALL
+         SELECT 'pg', pf.created_at, pf.code, pf.severity,
+                NULL, NULL, pf.message, pf.table_name, pf.column_name
+         FROM pg_findings pf
+         ORDER BY created_at DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit as i64], |row| {
+        let file: Option<String> = row.get(4)?;
+        let line: Option<i64> = row.get(5)?;
+        let table_name: Option<String> = row.get(7)?;
+        let col_name: Option<String> = row.get(8)?;
+        Ok(serde_json::json!({
+            "source":      row.get::<_, String>(0)?,
+            "created_at":  row.get::<_, String>(1)?,
+            "code":        row.get::<_, String>(2)?,
+            "severity":    row.get::<_, String>(3)?,
+            "file":        file,
+            "line":        line,
+            "message":     row.get::<_, String>(6)?,
+            "table_name":  table_name,
+            "column_name": col_name,
         }))
     })?;
     rows.collect()

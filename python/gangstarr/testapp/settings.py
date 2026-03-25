@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import gangstarr
@@ -16,8 +17,12 @@ INSTALLED_APPS = [
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('PGDATABASE', 'gangstarr'),
+        'USER': os.environ.get('PGUSER', 'gangstarr'),
+        'PASSWORD': os.environ.get('PGPASSWORD', 'gangstarr'),
+        'HOST': os.environ.get('PGHOST', 'localhost'),
+        'PORT': os.environ.get('PGPORT', '5433'),
     }
 }
 

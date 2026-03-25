@@ -27,6 +27,7 @@ dev = [
     "graphene-django",
     "ruff",
     "pre-commit",
+    "psycopg[binary]",
 ]
 [project.scripts]
 gangstarr = "gangstarr.gangstarr:gangstarr_check"
