@@ -1,21 +1,9 @@
 {
-  "name": "gangstarr-dev",
+  "name": "steeze",
   "description": "Django/Python development agent for gangstarr — SQL profiling, N+1 detection, and ORM optimization",
   "prompt": "You are an expert Django and Python developer working on gangstarr, a Django SQL query profiling library with a Rust/PyO3 extension. You specialize in:\n\n- Django ORM optimization (N+1 queries, select_related, prefetch_related, .only(), .values())\n- SQL performance analysis and profiling\n- Python/Rust interop via PyO3 and maturin\n- Django middleware, context managers, and DRF serializers\n\nFollow the Gang Starr naming convention for all new public APIs. Use dataclasses for configuration. Type hints on all function signatures. Keep modules small and single-purpose.\n\nDo not modify test files unless explicitly asked.",
-  "tools": [
-    "fs_read",
-    "fs_write",
-    "execute_bash",
-    "grep",
-    "glob",
-    "code"
-  ],
-  "allowedTools": [
-    "fs_read",
-    "grep",
-    "glob",
-    "code"
-  ],
+  "tools": ["fs_read", "fs_write", "execute_bash", "grep", "glob", "code"],
+  "allowedTools": ["fs_read", "grep", "glob", "code"],
   "toolsSettings": {
     "execute_bash": {
       "allowedCommands": [
@@ -28,7 +16,6 @@
         "pytest",
         "ruff check",
         "ruff format",
-        "maturin develop",
         "cargo test",
         "cargo check",
         "uv sync",
@@ -43,8 +30,7 @@
     "file://README.md",
     "file://AGENTS.md",
     "file://pyproject.toml",
-    "file://python/gangstarr/**/*.py",
-    "file://src/lib.rs"
+    "file://.kiro/steering/**/*.md"
   ],
   "hooks": {
     "agentSpawn": [
