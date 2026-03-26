@@ -293,7 +293,8 @@ fn print_findings_list(findings: &[serde_json::Value]) {
             _ => "\x1b[2m",
         };
         let msg_short = if message.len() > 55 {
-            format!("{}…", &message[..54])
+            let end = message.floor_char_boundary(54);
+            format!("{}…", &message[..end])
         } else {
             message.to_string()
         };
