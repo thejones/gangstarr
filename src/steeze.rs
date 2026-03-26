@@ -3,6 +3,7 @@
 /// Named after hip-hop slang for effortless style — Steeze reads the
 /// gangstarr.db, builds a prioritized context briefing, and hands it
 /// to an AI agent (Kiro, etc.) so the human can walk away.
+use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -135,6 +136,52 @@ pub fn store_briefing(db_path: &str, briefing: &Value) -> Result<()> {
     storage::insert_ai_briefing(&conn, &created_at, &run_ids, &json)
 }
 
+// ── AI template installation ──────────────────────────────────────────────────
+
+// Embed template files at compile time so they ship inside the binary.
+const KIRO_STEEZE_JSON: &str = include_str!("../ai_templates/kiro/agents/steeze.json");
+const KIRO_STEEZE_PROMPT: &str = include_str!("../ai_templates/kiro/steering/steeze-prompt.md");
+const KIRO_RULES: &str = include_str!("../ai_templates/kiro/steering/rules.md");
+
+/// Template file descriptor: relative path inside the target directory + content.
+struct TemplateFile {
+    rel_path: &'static str,
+    content: &'static str,
+}
+
+/// All Kiro template files that get installed into `<project_root>/.kiro/`.
+const KIRO_TEMPLATES: &[TemplateFile] = &[
+    TemplateFile { rel_path: "agents/steeze.json",       content: KIRO_STEEZE_JSON },
+    TemplateFile { rel_path: "steering/steeze-prompt.md", content: KIRO_STEEZE_PROMPT },
+    TemplateFile { rel_path: "steering/rules.md",         content: KIRO_RULES },
+];
+
+/// Copy the embedded AI templates for `flavor` into `project_root`.
+///
+/// Currently supports `"kiro"` — writes files to `<project_root>/.kiro/`.
+/// Overwrites existing files (our names are unique enough to be safe).
+fn install_templates(project_root: &Path, flavor: &str) -> std::io::Result<()> {
+    let (dot_dir, templates): (&str, &[TemplateFile]) = match flavor {
+        "kiro" => (".kiro", KIRO_TEMPLATES),
+        other => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("unknown template flavor '{}'", other),
+            ));
+        }
+    };
+
+    let dest = project_root.join(dot_dir);
+    for tmpl in templates {
+        let file_path = dest.join(tmpl.rel_path);
+        if let Some(parent) = file_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&file_path, tmpl.content)?;
+    }
+    Ok(())
+}
+
 // ── CLI handler ───────────────────────────────────────────────────────────────
 
 /// Run the `gangstarr steeze` subcommand.
@@ -151,15 +198,8 @@ pub fn run(argv: &[String]) -> i32 {
     let use_kiro = argv.iter().any(|a| a == "--kiro");
 
     let path = Path::new(path_str);
-    let output_dir = if path.is_dir() {
-        path.join(".gangstarr").to_string_lossy().into_owned()
-    } else {
-        path.parent()
-            .unwrap_or(Path::new("."))
-            .join(".gangstarr")
-            .to_string_lossy()
-            .into_owned()
-    };
+    let project_root = if path.is_dir() { path } else { path.parent().unwrap_or(Path::new(".")) };
+    let output_dir = project_root.join(".gangstarr").to_string_lossy().into_owned();
     let db_path = format!("{}/gangstarr.db", output_dir);
 
     // Check that the DB exists.
@@ -204,6 +244,19 @@ pub fn run(argv: &[String]) -> i32 {
             eprintln!("warning: could not store briefing in DB: {}", e);
         } else {
             println!("\n\x1b[2mBriefing stored in {}\x1b[0m", db_path);
+        }
+
+        // Install Kiro templates into the project root.
+        match install_templates(project_root, "kiro") {
+            Ok(()) => {
+                println!(
+                    "\x1b[2mKiro templates installed to {}/.kiro/\x1b[0m",
+                    project_root.display()
+                );
+            }
+            Err(e) => {
+                eprintln!("warning: could not install Kiro templates: {}", e);
+            }
         }
 
         // Launch kiro-cli.
@@ -309,6 +362,7 @@ fn print_briefing_summary(briefing: &Value) {
 
 fn launch_kiro() {
     println!("\n\x1b[1mLaunching Kiro steeze agent…\x1b[0m\n");
+    println!("\n\x1b[1mExample Prompt: Analyze the latest run\x1b[0m\n");
 
     let status = std::process::Command::new("kiro-cli")
         .args(["--agent", "steeze"])

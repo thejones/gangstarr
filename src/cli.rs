@@ -338,7 +338,7 @@ fn print_usage() {
     println!("    G204  Unstable query plan — high stddev/mean execution time");
     println!();
     println!("OPTIONS (steeze):");
-    println!("    --kiro                              Store briefing + launch kiro-cli agent");
+    println!("    --kiro                              Install .kiro/ templates, store briefing, launch kiro-cli");
     println!();
     println!("EXIT CODES:");
     println!("    0  No issues found");

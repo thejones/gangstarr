@@ -402,6 +402,7 @@ pub fn insert_ai_briefing(
 }
 
 /// Fetch the most recent AI briefing.
+#[allow(dead_code)]
 pub fn fetch_latest_briefing(db_path: &str) -> Result<Option<Value>> {
     let conn = ensure_db(db_path)?;
     let mut stmt = conn.prepare(
