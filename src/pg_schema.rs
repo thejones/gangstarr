@@ -433,7 +433,8 @@ fn print_findings_table(findings: &[PgFinding]) {
         let table = f.table_name.as_deref().unwrap_or("—");
         let col = f.column_name.as_deref().unwrap_or("—");
         let msg_short = if f.message.len() > 60 {
-            format!("{}…", &f.message[..59])
+            let end = f.message.floor_char_boundary(59);
+            format!("{}…", &f.message[..end])
         } else {
             f.message.clone()
         };
