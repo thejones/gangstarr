@@ -85,7 +85,7 @@ jobs:
   # wheel metadata (and filename) carries the correct version.
 
   linux:
-    # needs: [version]
+    needs: [version]
     # if: needs.version.outputs.skip != 'true'
     runs-on: ${{ matrix.platform.runner }}
     strategy:
