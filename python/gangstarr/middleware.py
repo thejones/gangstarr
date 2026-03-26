@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import sys
-import threading
-from pathlib import Path
 
 from django.conf import settings
 

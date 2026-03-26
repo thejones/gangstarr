@@ -1,0 +1,45 @@
+{
+  "name": "steeze",
+  "description": "Django/Python development agent for gangstarr — SQL profiling, N+1 detection, and ORM optimization",
+  "prompt": "file://../steering/steeze-prompt.md",
+  "tools": ["fs_read", "fs_write", "execute_bash", "grep", "glob", "code"],
+  "allowedTools": ["fs_read", "grep", "glob", "code"],
+  "toolsSettings": {
+    "execute_bash": {
+      "allowedCommands": [
+        "git status",
+        "git diff",
+        "git log",
+        "git branch",
+        "git add",
+        "git stash",
+        "pytest",
+        "ruff check",
+        "ruff format",
+        "cargo test",
+        "cargo check",
+        "uv sync",
+        "python -m django",
+        "gangstarr check",
+        "gangstarr history"
+      ],
+      "autoAllowReadonly": true
+    }
+  },
+  "resources": [
+    "file://README.md",
+    "file://AGENTS.md",
+    "file://pyproject.toml",
+    "file://.kiro/steering/**/*.md"
+  ],
+  "hooks": {
+    "agentSpawn": [
+      {
+        "command": "python3 --version && git branch --show-current",
+        "description": "Show Python version and current git branch"
+      }
+    ]
+  },
+  "keyboardShortcut": "ctrl+shift+g",
+  "welcomeMessage": "Gangstarr dev agent loaded. Ready to help with Django ORM optimization, SQL profiling, and N+1 detection."
+}

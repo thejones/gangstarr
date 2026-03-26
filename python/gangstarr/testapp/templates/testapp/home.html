@@ -39,6 +39,7 @@
         <div class="api-links">
             <a class="btn btn-graphql" href="/graphql/">GraphQL Playground</a>
             <button class="btn btn-run" onclick="runGraphQL()">Run GraphQL Query</button>
+            <button class="btn btn-run" style="background-color:#9b59b6;" onclick="runGraphQLDataLoader()">Run GraphQL (DataLoader)</button>
             <a class="btn btn-rest" href="/api/artists/">REST API</a>
         </div>
         <div id="graphql-result" class="result-panel">
@@ -48,16 +49,36 @@
             </div>
             <div id="graphql-result-body" class="result-body"></div>
         </div>
+        <div id="graphql-dl-result" class="result-panel">
+            <div class="result-header" style="background-color:#6c3483;">
+                <span>GraphQL DataLoader Response</span>
+                <button onclick="document.getElementById('graphql-dl-result').style.display='none'">Close</button>
+            </div>
+            <div id="graphql-dl-result-body" class="result-body"></div>
+        </div>
     </div>
     <script>
+        const GQL_QUERY = `{ artistsWithAlbumsAndTracks(limit: 5) { id name albums { id title tracks { id name milliseconds unitPrice } } } }`;
+
         function runGraphQL() {
             const panel = document.getElementById('graphql-result');
             const body = document.getElementById('graphql-result-body');
             panel.style.display = 'block';
             body.className = 'result-body loading';
             body.textContent = 'Running query…';
-            const query = `{ artistsWithAlbumsAndTracks(limit: 5) { id name albums { id title tracks { id name milliseconds unitPrice } } } }`;
-            fetch('/graphql/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) })
+            fetch('/graphql/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: GQL_QUERY }) })
+            .then(res => res.json())
+            .then(data => { body.className = 'result-body'; body.textContent = JSON.stringify(data, null, 2); })
+            .catch(err => { body.className = 'result-body'; body.textContent = 'Error: ' + err.message; });
+        }
+
+        function runGraphQLDataLoader() {
+            const panel = document.getElementById('graphql-dl-result');
+            const body = document.getElementById('graphql-dl-result-body');
+            panel.style.display = 'block';
+            body.className = 'result-body loading';
+            body.textContent = 'Running query…';
+            fetch('/graphql-dl/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: GQL_QUERY }) })
             .then(res => res.json())
             .then(data => { body.className = 'result-body'; body.textContent = JSON.stringify(data, null, 2); })
             .catch(err => { body.className = 'result-body'; body.textContent = 'Error: ' + err.message; });
