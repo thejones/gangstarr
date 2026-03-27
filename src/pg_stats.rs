@@ -7,7 +7,7 @@
 /// All SQL executed here is read-only (SELECT only).
 use postgres::{Client, NoTls};
 
-use crate::storage::{self, PgFinding};
+use crate::storage::{self, PgFinding, QueryCodeEntry};
 
 // ── ANSI colours ─────────────────────────────────────────────────────────────
 
@@ -61,7 +61,19 @@ pub fn run_stat_findings(db_url: &str, gangstarr_db: &str) -> (Vec<PgFinding>, i
     let over_fetch = check_high_row_ratio(&mut client);
     all_findings.extend(over_fetch);
 
-    // 5. Cross-reference with gangstarr fingerprints
+    // 5. Top queries → code path mapping
+    let code_map = build_query_code_map(&mut client, gangstarr_db);
+    if !code_map.is_empty() {
+        print_query_code_map(&code_map);
+        // Store in SQLite for later correlation.
+        if let Ok(conn) = storage::ensure_db(gangstarr_db) {
+            // Use a deterministic run_id suffix for the code map.
+            let map_run_id = format!("qcm{}", &gangstarr_db.len());
+            let _ = storage::insert_query_code_map(&conn, &map_run_id, &code_map);
+        }
+    }
+
+    // 6. Cross-reference with gangstarr fingerprints
     cross_reference_fingerprints(&mut client, gangstarr_db, &mut all_findings);
 
     // ── Print summary ────────────────────────────────────────────────────────
@@ -401,6 +413,245 @@ fn cross_reference_fingerprints(
             "{}Cross-reference:{} matched {} gangstarr runtime fingerprint(s) to pg_stat_statements.",
             BOLD, RESET, matched
         );
+        println!();
+    }
+}
+
+// ── Query → Code Path Mapping ────────────────────────────────────────────────────
+
+/// Extract table names from a SQL query using pg_query parser.
+fn extract_table_names(sql: &str) -> Vec<String> {
+    match pg_query::parse(sql) {
+        Ok(result) => {
+            let mut tables = result.tables();
+            tables.sort();
+            tables.dedup();
+            tables
+        }
+        Err(_) => {
+            // Fallback: regex-based extraction for queries pg_query can't parse
+            // (e.g. parameterized $1 queries from pg_stat_statements).
+            extract_tables_regex(sql)
+        }
+    }
+}
+
+/// Regex fallback for table extraction when pg_query fails.
+fn extract_tables_regex(sql: &str) -> Vec<String> {
+    let patterns = [
+        regex::Regex::new(r"(?i)\bFROM\s+(\w+)").unwrap(),
+        regex::Regex::new(r"(?i)\bJOIN\s+(\w+)").unwrap(),
+        regex::Regex::new(r"(?i)\bINTO\s+(\w+)").unwrap(),
+        regex::Regex::new(r"(?i)\bUPDATE\s+(\w+)").unwrap(),
+    ];
+    let mut tables = Vec::new();
+    for pat in &patterns {
+        for cap in pat.captures_iter(sql) {
+            let name = cap[1].to_string();
+            if !matches!(name.to_uppercase().as_str(), "SELECT" | "WHERE" | "SET" | "VALUES" | "NULL" | "LATERAL") {
+                tables.push(name);
+            }
+        }
+    }
+    tables.sort();
+    tables.dedup();
+    tables
+}
+
+/// Map a Django table name to a model name.
+/// Convention: `appname_modelname` → `ModelName`.
+fn table_to_model_name(table: &str) -> Option<String> {
+    // Split on '_' and find the first reasonable model name.
+    // Django convention: app_model, so skip the app prefix.
+    let parts: Vec<&str> = table.split('_').collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    // The model name is everything after the first underscore, PascalCased.
+    let model_parts = &parts[1..];
+    let pascal: String = model_parts
+        .iter()
+        .map(|p| {
+            let mut chars = p.chars();
+            match chars.next() {
+                Some(first) => {
+                    let upper: String = first.to_uppercase().collect();
+                    format!("{}{}", upper, chars.as_str())
+                }
+                None => String::new(),
+            }
+        })
+        .collect();
+
+    if pascal.is_empty() { None } else { Some(pascal) }
+}
+
+/// Build the top-queries → code path mapping.
+fn build_query_code_map(client: &mut Client, gangstarr_db: &str) -> Vec<QueryCodeEntry> {
+    let sql = "SELECT query, calls, total_exec_time, mean_exec_time, rows
+               FROM pg_stat_statements
+               ORDER BY total_exec_time DESC
+               LIMIT 100";
+
+    let rows = match client.query(sql, &[]) {
+        Ok(r) => r,
+        Err(_) => {
+            // Pre-13 fallback
+            match client.query(
+                "SELECT query, calls, total_time, mean_time, rows
+                 FROM pg_stat_statements
+                 ORDER BY total_time DESC LIMIT 100",
+                &[],
+            ) {
+                Ok(r) => r,
+                Err(_) => return vec![],
+            }
+        }
+    };
+
+    // Load static findings from the DB for cross-referencing.
+    let static_counts = load_static_finding_counts(gangstarr_db);
+
+    let mut entries = Vec::new();
+    for (rank, row) in rows.iter().enumerate() {
+        let query: String = row.get(0);
+        let calls: i64 = row.get(1);
+        let total_ms: f64 = row.get(2);
+        let mean_ms: f64 = row.get(3);
+        let row_count: i64 = row.get(4);
+
+        let tables = extract_table_names(&query);
+        if tables.is_empty() {
+            continue;
+        }
+
+        // Find the first model name match and cross-reference with static findings.
+        let mut model_name = None;
+        let mut model_file = None;
+        let mut finding_count = 0i64;
+
+        for table in &tables {
+            if let Some(name) = table_to_model_name(table) {
+                // Check if we have static findings for files containing this model.
+                if let Some(count) = static_counts.get(&name.to_lowercase()) {
+                    finding_count += count;
+                }
+                if model_name.is_none() {
+                    model_name = Some(name);
+                    // Derive likely file path from table name (convention: app/models.py).
+                    let app = table.split('_').next().unwrap_or("");
+                    if !app.is_empty() {
+                        model_file = Some(format!("**/apps/{}/models.py", app));
+                    }
+                }
+            }
+        }
+
+        let table_str = tables.join(", ");
+
+        entries.push(QueryCodeEntry {
+            query_rank: (rank + 1) as i32,
+            query_text: truncate_query(&query, 120),
+            calls,
+            total_exec_ms: total_ms,
+            mean_exec_ms: mean_ms,
+            rows_total: row_count,
+            table_names: table_str,
+            model_name,
+            model_file,
+            static_finding_count: finding_count,
+        });
+    }
+
+    entries
+}
+
+/// Load a map of lowercase model name → static finding count from the DB.
+fn load_static_finding_counts(gangstarr_db: &str) -> std::collections::HashMap<String, i64> {
+    let mut counts = std::collections::HashMap::new();
+    let conn = match storage::ensure_db(gangstarr_db) {
+        Ok(c) => c,
+        Err(_) => return counts,
+    };
+
+    // Count static findings per file basename to correlate with model names.
+    let mut stmt = match conn.prepare(
+        "SELECT file, COUNT(*) FROM static_findings GROUP BY file",
+    ) {
+        Ok(s) => s,
+        Err(_) => return counts,
+    };
+
+    let rows = match stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    }) {
+        Ok(r) => r,
+        Err(_) => return counts,
+    };
+
+    for row in rows.flatten() {
+        let (file, count) = row;
+        // Extract the "app" portion from the file path for matching.
+        // e.g. "mfr/apps/fieldstory/models.py" → "fieldstory"
+        let parts: Vec<&str> = file.split('/').collect();
+        for (i, part) in parts.iter().enumerate() {
+            if *part == "apps" || *part == "app" {
+                if let Some(app_name) = parts.get(i + 1) {
+                    *counts.entry(app_name.to_lowercase()).or_insert(0) += count;
+                }
+            }
+        }
+    }
+
+    counts
+}
+
+fn print_query_code_map(entries: &[QueryCodeEntry]) {
+    println!();
+    println!("{}Top Queries → Code Path Mapping{}", BOLD, RESET);
+    println!("{}", SINGLE_LINE);
+    println!(
+        "{:<5} {:>8} {:>10} {:>8} {:<30} {:<20} {:>8}",
+        "Rank", "Calls", "Total(ms)", "Rows", "Tables", "Model", "Findings"
+    );
+    println!("{}", "─".repeat(100));
+
+    for e in entries.iter().take(20) {
+        let model = e.model_name.as_deref().unwrap_or("—");
+        let color = if e.static_finding_count > 0 { YELLOW } else { "" };
+        println!(
+            "{}#{:<4} {:>8} {:>10.1} {:>8} {:<30} {:<20} {:>8}{}",
+            color,
+            e.query_rank,
+            fmt_number(e.calls),
+            e.total_exec_ms,
+            fmt_number(e.rows_total),
+            truncate_query(&e.table_names, 28),
+            if model.len() > 18 { &model[..18] } else { model },
+            e.static_finding_count,
+            RESET
+        );
+    }
+    println!();
+
+    // Highlight entries with both high cost and static findings.
+    let hot: Vec<&QueryCodeEntry> = entries
+        .iter()
+        .filter(|e| e.static_finding_count > 0 && e.query_rank <= 20)
+        .collect();
+
+    if !hot.is_empty() {
+        println!(
+            "{}  ⚠  {} of the top 20 queries have static findings in related code:{}",
+            YELLOW, hot.len(), RESET
+        );
+        for e in &hot {
+            let model = e.model_name.as_deref().unwrap_or("?");
+            println!(
+                "     #{} ({} calls, {:.0}ms) → {} ({} findings)",
+                e.query_rank, fmt_number(e.calls), e.total_exec_ms, model, e.static_finding_count
+            );
+        }
         println!();
     }
 }

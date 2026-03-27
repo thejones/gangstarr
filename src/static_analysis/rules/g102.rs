@@ -1,7 +1,7 @@
 use regex::Regex;
 
 use crate::static_analysis::models::{Severity, StaticFinding};
-use crate::static_analysis::rules::{Rule, indent_of, is_comment_or_blank};
+use crate::static_analysis::rules::{Rule, indent_of, is_comment_or_blank, join_logical_line, chain_contains_method};
 
 pub struct G102 {
     pattern: Regex,
@@ -16,9 +16,13 @@ impl G102 {
     }
 }
 
+/// Field-narrowing methods that suppress G102 when chained after .all().
+const NARROWING_METHODS: &[&str] = &[".only(", ".values(", ".values_list(", ".defer("];
+
 impl Rule for G102 {
     fn check(&self, file: &str, source: &str) -> Vec<StaticFinding> {
         let mut findings = Vec::new();
+        let lines: Vec<&str> = source.lines().collect();
 
         // Detect GraphQL context: the suggestion changes because .only()
         // isn't practical when the client controls field selection.
@@ -26,18 +30,27 @@ impl Rule for G102 {
             || source.contains("graphene")
             || source.contains("ObjectType");
 
-        for (i, line) in source.lines().enumerate() {
+        let mut i = 0;
+        while i < lines.len() {
+            let line = lines[i];
             if is_comment_or_blank(line) {
+                i += 1;
                 continue;
             }
 
-            if self.pattern.is_match(line) {
-                // Already narrowed on the same logical line → not a problem.
-                if line.contains(".only(")
-                    || line.contains(".values(")
-                    || line.contains(".values_list(")
-                    || line.contains(".defer(")
-                {
+            // Join multi-line statements so `.all(\n)` is handled correctly.
+            let (logical, extra) = join_logical_line(&lines, i);
+
+            if self.pattern.is_match(&logical) {
+                // Already narrowed on the same logical statement → not a problem.
+                if NARROWING_METHODS.iter().any(|m| logical.contains(m)) {
+                    i += 1 + extra;
+                    continue;
+                }
+
+                // Check downstream chain lines for narrowing (covers multi-line style).
+                if chain_contains_method(&lines, i, NARROWING_METHODS) {
+                    i += 1 + extra;
                     continue;
                 }
 
@@ -63,6 +76,8 @@ impl Rule for G102 {
                     suggestion: Some(suggestion),
                 });
             }
+
+            i += 1 + extra;
         }
 
         findings

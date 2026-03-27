@@ -63,6 +63,18 @@ pub fn run_review(db_url: &str) -> (Vec<PgFinding>, i32) {
     let unused_findings = check_unused_indexes(&mut client);
     all_findings.extend(unused_findings);
 
+    // 6. Sequential scans on large tables → G205
+    let seq_findings = check_seq_scans(&mut client);
+    all_findings.extend(seq_findings);
+
+    // 7. Table bloat (dead tuple ratio) → G206
+    let bloat_findings = check_table_bloat(&mut client);
+    all_findings.extend(bloat_findings);
+
+    // 8. Cache miss rate → G207
+    let cache_findings = check_cache_miss(&mut client);
+    all_findings.extend(cache_findings);
+
     // ── Print summary ────────────────────────────────────────────────────────
     println!();
     println!("{}{}{}", BOLD, SINGLE_LINE, RESET);
@@ -88,11 +100,24 @@ pub fn run_review(db_url: &str) -> (Vec<PgFinding>, i32) {
 // ── Checks ────────────────────────────────────────────────────────────────────
 
 fn print_table_overview(client: &mut Client) {
+    // Use pg_total_relation_size wrapped in a privilege check to avoid errors
+    // on tables the connected role cannot stat, and exclude extension views.
     let rows = match client.query(
         "SELECT schemaname, tablename,
-                COALESCE(n_live_tup, 0)          AS live_rows,
-                pg_relation_size(schemaname||'.'||tablename) AS table_bytes
+                COALESCE(n_live_tup, 0) AS live_rows,
+                CASE WHEN has_table_privilege(schemaname||'.'||tablename, 'SELECT')
+                     THEN pg_total_relation_size(schemaname||'.'||tablename)
+                     ELSE 0
+                END AS table_bytes
          FROM pg_stat_user_tables
+         WHERE tablename NOT IN (
+             SELECT extname FROM pg_extension
+             UNION SELECT objid::regclass::text
+                   FROM pg_depend d
+                   JOIN pg_extension e ON e.oid = d.refobjid
+                   WHERE d.deptype = 'e' AND d.classid = 'pg_class'::regclass
+         )
+           AND tablename NOT LIKE 'pg_%'
          ORDER BY n_live_tup DESC NULLS LAST
          LIMIT 20",
         &[],
@@ -268,10 +293,12 @@ fn check_missing_pks(client: &mut Client) -> Vec<PgFinding> {
 }
 
 fn check_wide_tables(client: &mut Client) -> Vec<PgFinding> {
+    // Exclude extension-created objects (e.g. pg_stat_statements) from results.
     let rows = match client.query(
         "SELECT table_schema, table_name, COUNT(*) AS col_count
          FROM information_schema.columns
          WHERE table_schema NOT IN ('pg_catalog','information_schema')
+           AND table_name NOT LIKE 'pg_%'
          GROUP BY table_schema, table_name
          HAVING COUNT(*) > 25
          ORDER BY col_count DESC",
@@ -387,6 +414,199 @@ fn check_unused_indexes(client: &mut Client) -> Vec<PgFinding> {
                     idx, schema, table, fmt_bytes(bytes)
                 ),
                 suggestion: Some(format!("DROP INDEX IF EXISTS {};", idx)),
+            }
+        })
+        .collect()
+}
+
+fn check_seq_scans(client: &mut Client) -> Vec<PgFinding> {
+    // Large tables with lots of sequential scans = likely missing index.
+    let rows = match client.query(
+        "SELECT schemaname, relname, seq_scan, n_live_tup, seq_tup_read
+         FROM pg_stat_user_tables
+         WHERE seq_scan > 100
+           AND n_live_tup > 10000
+           AND relname NOT LIKE 'pg_%'
+         ORDER BY seq_scan DESC
+         LIMIT 15",
+        &[],
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{}warning:{} could not check sequential scans: {}", YELLOW, RESET, e);
+            return vec![];
+        }
+    };
+
+    if rows.is_empty() {
+        return vec![];
+    }
+
+    println!("{}G205 — Sequential Scans on Large Tables{}", BOLD, RESET);
+    println!("{}", SINGLE_LINE);
+    for row in &rows {
+        let schema: String = row.get(0);
+        let table: String = row.get(1);
+        let scans: i64 = row.get(2);
+        let live: i64 = row.get(3);
+        println!(
+            "  {}●  {}.{}  {} seq scans, ~{} rows{}",
+            YELLOW, schema, table, fmt_number(scans), fmt_number(live), RESET
+        );
+    }
+    println!();
+
+    rows.iter()
+        .map(|row| {
+            let schema: String = row.get(0);
+            let table: String = row.get(1);
+            let scans: i64 = row.get(2);
+            let live: i64 = row.get(3);
+            PgFinding {
+                code: "G205".to_string(),
+                severity: "warning".to_string(),
+                table_name: Some(format!("{}.{}", schema, table)),
+                column_name: None,
+                message: format!(
+                    "Table `{}.{}` has {} sequential scans with ~{} rows — likely missing an index",
+                    schema, table, fmt_number(scans), fmt_number(live)
+                ),
+                suggestion: Some(
+                    "Check query patterns hitting this table and add indexes for common WHERE/JOIN columns."
+                        .to_string(),
+                ),
+            }
+        })
+        .collect()
+}
+
+fn check_table_bloat(client: &mut Client) -> Vec<PgFinding> {
+    // High dead tuple ratio = needs VACUUM.
+    let rows = match client.query(
+        "SELECT schemaname, relname, n_live_tup, n_dead_tup,
+                CASE WHEN n_live_tup > 0
+                     THEN n_dead_tup::float / n_live_tup
+                     ELSE 0
+                END AS dead_ratio
+         FROM pg_stat_user_tables
+         WHERE n_live_tup > 1000
+           AND n_dead_tup::float / NULLIF(n_live_tup, 0) > 0.2
+           AND relname NOT LIKE 'pg_%'
+         ORDER BY dead_ratio DESC
+         LIMIT 15",
+        &[],
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{}warning:{} could not check table bloat: {}", YELLOW, RESET, e);
+            return vec![];
+        }
+    };
+
+    if rows.is_empty() {
+        return vec![];
+    }
+
+    println!("{}G206 — Table Bloat (Dead Tuples){}", BOLD, RESET);
+    println!("{}", SINGLE_LINE);
+    for row in &rows {
+        let schema: String = row.get(0);
+        let table: String = row.get(1);
+        let live: i64 = row.get(2);
+        let dead: i64 = row.get(3);
+        let ratio: f64 = row.get(4);
+        println!(
+            "  {}●  {}.{}  {:.0}% dead ({} dead / {} live){}",
+            YELLOW, schema, table, ratio * 100.0, fmt_number(dead), fmt_number(live), RESET
+        );
+    }
+    println!();
+
+    rows.iter()
+        .map(|row| {
+            let schema: String = row.get(0);
+            let table: String = row.get(1);
+            let dead: i64 = row.get(3);
+            let ratio: f64 = row.get(4);
+            PgFinding {
+                code: "G206".to_string(),
+                severity: "warning".to_string(),
+                table_name: Some(format!("{}.{}", schema, table)),
+                column_name: None,
+                message: format!(
+                    "Table `{}.{}` has {:.0}% dead tuples ({} dead rows) — needs VACUUM",
+                    schema, table, ratio * 100.0, fmt_number(dead)
+                ),
+                suggestion: Some(
+                    "Run VACUUM ANALYZE on this table, or check autovacuum settings."
+                        .to_string(),
+                ),
+            }
+        })
+        .collect()
+}
+
+fn check_cache_miss(client: &mut Client) -> Vec<PgFinding> {
+    // Tables with high cache miss rate (>10% reads from disk).
+    let rows = match client.query(
+        "SELECT schemaname, relname,
+                heap_blks_read, heap_blks_hit,
+                CASE WHEN (heap_blks_hit + heap_blks_read) > 0
+                     THEN heap_blks_read::float / (heap_blks_hit + heap_blks_read)
+                     ELSE 0
+                END AS miss_rate
+         FROM pg_statio_user_tables
+         WHERE (heap_blks_hit + heap_blks_read) > 1000
+           AND heap_blks_read::float / NULLIF(heap_blks_hit + heap_blks_read, 0) > 0.1
+           AND relname NOT LIKE 'pg_%'
+         ORDER BY miss_rate DESC
+         LIMIT 15",
+        &[],
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{}warning:{} could not check cache miss rate: {}", YELLOW, RESET, e);
+            return vec![];
+        }
+    };
+
+    if rows.is_empty() {
+        return vec![];
+    }
+
+    println!("{}G207 — Cache Miss Rate{}", BOLD, RESET);
+    println!("{}", SINGLE_LINE);
+    for row in &rows {
+        let schema: String = row.get(0);
+        let table: String = row.get(1);
+        let reads: i64 = row.get(2);
+        let hits: i64 = row.get(3);
+        let miss: f64 = row.get(4);
+        println!(
+            "  {}●  {}.{}  {:.1}% miss ({} disk reads, {} cache hits){}",
+            YELLOW, schema, table, miss * 100.0, fmt_number(reads), fmt_number(hits), RESET
+        );
+    }
+    println!();
+
+    rows.iter()
+        .map(|row| {
+            let schema: String = row.get(0);
+            let table: String = row.get(1);
+            let miss: f64 = row.get(4);
+            PgFinding {
+                code: "G207".to_string(),
+                severity: "warning".to_string(),
+                table_name: Some(format!("{}.{}", schema, table)),
+                column_name: None,
+                message: format!(
+                    "Table `{}.{}` has {:.1}% cache miss rate — not fitting in shared_buffers",
+                    schema, table, miss * 100.0
+                ),
+                suggestion: Some(
+                    "Increase shared_buffers, add .only() to narrow fetched fields, or review query patterns."
+                        .to_string(),
+                ),
             }
         })
         .collect()

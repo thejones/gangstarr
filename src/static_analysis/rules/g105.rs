@@ -1,7 +1,7 @@
 use regex::Regex;
 
 use crate::static_analysis::models::{Severity, StaticFinding};
-use crate::static_analysis::rules::{Rule, indent_of, is_comment_or_blank};
+use crate::static_analysis::rules::{Rule, indent_of, is_comment_or_blank, join_logical_line};
 
 pub struct G105 {
     /// `if <queryset_expr>:` without `.exists()`
@@ -23,18 +23,26 @@ impl G105 {
 impl Rule for G105 {
     fn check(&self, file: &str, source: &str) -> Vec<StaticFinding> {
         let mut findings = Vec::new();
+        let lines: Vec<&str> = source.lines().collect();
 
-        for (i, line) in source.lines().enumerate() {
+        let mut i = 0;
+        while i < lines.len() {
+            let line = lines[i];
             if is_comment_or_blank(line) {
+                i += 1;
                 continue;
             }
 
-            // Already uses .exists() → fine.
-            if line.contains(".exists()") {
+            // Join multi-line statements so `.filter(\n...\n).exists()` is one unit.
+            let (logical, extra) = join_logical_line(&lines, i);
+
+            // Already uses .exists() on the logical line → fine.
+            if logical.contains(".exists()") {
+                i += 1 + extra;
                 continue;
             }
 
-            if self.pattern.is_match(line) {
+            if self.pattern.is_match(&logical) {
                 findings.push(StaticFinding {
                     rule: "G105".to_string(),
                     message: "Queryset truthiness check loads rows — use .exists() instead".to_string(),
@@ -47,6 +55,8 @@ impl Rule for G105 {
                     ),
                 });
             }
+
+            i += 1 + extra;
         }
 
         findings

@@ -13,7 +13,6 @@ from gangstarr.gangstarr import (
     get_run_history as _get_run_history,
     init_gangstarr_db as _init_gangstarr_db,
     normalize_sql,
-    store_field_usage as _store_field_usage,
     store_runtime_run as _store_runtime_run,
     store_static_run as _store_static_run,
 )
@@ -25,7 +24,6 @@ __all__ = [
     "analyze",
     "store_runtime_findings",
     "store_static_findings",
-    "store_field_usage_records",
     "get_history",
     "correlate",
 ]
@@ -99,21 +97,6 @@ def store_static_findings(
     _init_gangstarr_db(db_path)
     _store_static_run(db_path, run_id, _now_iso(), project_root, json.dumps(findings))
     return run_id
-
-
-def store_field_usage_records(
-    records: list[dict[str, str]],
-    project_root: str,
-    run_id: str,
-) -> None:
-    """Persist field-usage records (from ``flush_field_usage()``) for a run.
-
-    ``records`` is the list returned by
-    :func:`gangstarr.field_tracker.flush_field_usage`.
-    """
-    db_path = _get_db_path(project_root)
-    _init_gangstarr_db(db_path)
-    _store_field_usage(db_path, run_id, json.dumps(records))
 
 
 # ── History & correlation ─────────────────────────────────────────────────────

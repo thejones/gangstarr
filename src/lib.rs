@@ -161,18 +161,6 @@ mod gangstarr {
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
-    /// Store field-usage records collected by FieldUsageTrackerMixin.
-    ///
-    /// `usage_json` is a JSON array of {model, field, endpoint, serializer}.
-    #[pyfunction]
-    fn store_field_usage(db_path: &str, run_id: &str, usage_json: &str) -> PyResult<()> {
-        let records: Vec<serde_json::Value> = serde_json::from_str(usage_json)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let conn = storage::ensure_db(db_path)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        storage::insert_field_usage(&conn, run_id, &records)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
-    }
 
     /// Return the last `limit` runs as a JSON string.
     #[pyfunction]

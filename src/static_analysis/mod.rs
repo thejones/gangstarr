@@ -19,7 +19,7 @@ use rules::all_rules;
 /// - `"/tests/"` is normalised to `"tests"` before matching
 ///
 /// Named after the Gang Starr album "Step in the Arena".
-pub fn step_in_the_arena(path: &Path, excludes: &[String]) -> Vec<StaticFinding> {
+pub fn step_in_the_arena(path: &Path, excludes: &[String], includes: &[String]) -> Vec<StaticFinding> {
     let rules = all_rules();
     let mut all_findings: Vec<StaticFinding> = Vec::new();
 
@@ -32,7 +32,7 @@ pub fn step_in_the_arena(path: &Path, excludes: &[String]) -> Vec<StaticFinding>
     {
         let file_path = entry.path();
 
-        if should_skip(file_path, excludes) {
+        if should_skip(file_path, excludes, includes) {
             continue;
         }
 
@@ -60,8 +60,8 @@ pub fn step_in_the_arena(path: &Path, excludes: &[String]) -> Vec<StaticFinding>
 /// Return true if the path should be skipped.
 ///
 /// Checks built-in always-skip directories first, then `extra_excludes`.
-fn should_skip(path: &Path, extra_excludes: &[String]) -> bool {
-    // ── Built-in exclusions ──────────────────────────────────────────────────
+fn should_skip(path: &Path, extra_excludes: &[String], includes: &[String]) -> bool {
+    // ── Built-in exclusions ──────────────────────────────────────────────────────────────
     let built_in_skip = path.components().any(|c| {
         let s = c.as_os_str().to_string_lossy();
         matches!(
@@ -82,7 +82,24 @@ fn should_skip(path: &Path, extra_excludes: &[String]) -> bool {
         return true;
     }
 
-    // ── Custom exclusions ────────────────────────────────────────────────────
+    // ── Test directories (excluded by default, opt-in via --include) ────────
+    let test_patterns: &[&str] = &["tests", "test_", "conftest"];
+    let include_tests = includes.iter().any(|i| i == "tests");
+
+    if !include_tests {
+        for tp in test_patterns {
+            if path.components().any(|c| c.as_os_str().to_string_lossy() == *tp) {
+                return true;
+            }
+            if let Some(fname) = path.file_name() {
+                if fname.to_string_lossy().contains(tp) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // ── Custom exclusions ────────────────────────────────────────────────────────────────
     for pattern in extra_excludes {
         // Strip surrounding slashes so '/tests/' and 'tests' are equivalent.
         let p = pattern.trim_matches('/');
