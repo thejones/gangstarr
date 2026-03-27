@@ -190,10 +190,11 @@ mod gangstarr {
     fn gangstarr_check(py: Python<'_>) -> PyResult<()> {
         let mut argv: Vec<String> = py.import("sys")?.getattr("argv")?.extract()?;
 
-        // Auto-inject --db-url for pg-royalty if Django settings are available.
-        if argv.get(1).map(|s| s == "pg-royalty").unwrap_or(false)
-            && !argv.iter().any(|a| a == "--db-url")
-        {
+        // Auto-inject --db-url for pg-royalty / fullclip if Django settings are available.
+        let needs_db_url = argv.get(1)
+            .map(|s| s == "pg-royalty" || s == "fullclip")
+            .unwrap_or(false);
+        if needs_db_url && !argv.iter().any(|a| a == "--db-url") {
             if let Ok(url) = discover_db_url(py) {
                 if !url.is_empty() {
                     argv.push("--db-url".to_string());

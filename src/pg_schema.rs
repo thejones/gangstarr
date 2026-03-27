@@ -100,24 +100,18 @@ pub fn run_review(db_url: &str) -> (Vec<PgFinding>, i32) {
 // ── Checks ────────────────────────────────────────────────────────────────────
 
 fn print_table_overview(client: &mut Client) {
-    // Use pg_total_relation_size wrapped in a privilege check to avoid errors
-    // on tables the connected role cannot stat, and exclude extension views.
+    // Simple query that avoids pg_relation_size (can fail on tables the role
+    // can't stat) and filters out internal/extension tables.
     let rows = match client.query(
         "SELECT schemaname, tablename,
                 COALESCE(n_live_tup, 0) AS live_rows,
-                CASE WHEN has_table_privilege(schemaname||'.'||tablename, 'SELECT')
-                     THEN pg_total_relation_size(schemaname||'.'||tablename)
-                     ELSE 0
-                END AS table_bytes
+                COALESCE(pg_total_relation_size(
+                    quote_ident(schemaname)||'.'||quote_ident(tablename)
+                ), 0) AS table_bytes
          FROM pg_stat_user_tables
-         WHERE tablename NOT IN (
-             SELECT extname FROM pg_extension
-             UNION SELECT objid::regclass::text
-                   FROM pg_depend d
-                   JOIN pg_extension e ON e.oid = d.refobjid
-                   WHERE d.deptype = 'e' AND d.classid = 'pg_class'::regclass
-         )
+         WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
            AND tablename NOT LIKE 'pg_%'
+           AND tablename NOT LIKE 'sql_%'
          ORDER BY n_live_tup DESC NULLS LAST
          LIMIT 20",
         &[],
