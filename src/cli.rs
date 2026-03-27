@@ -204,6 +204,48 @@ pub fn run_check(argv: &[String]) -> i32 {
         "pg-royalty" => {
             pg_royalty::run(argv)
         }
+        "fullclip" => {
+            // Full Clip: run check + pg-royalty together.
+            let path_str = argv.get(2)
+                .map(String::as_str)
+                .filter(|p| !p.starts_with('-'))
+                .unwrap_or(".");
+
+            let path = Path::new(path_str);
+            if !path.exists() {
+                eprintln!("error: path '{}' does not exist", path_str);
+                return 2;
+            }
+
+            // Run static check.
+            let mut check_argv = vec![
+                "gangstarr".to_string(),
+                "check".to_string(),
+                path_str.to_string(),
+            ];
+            // Forward --include flags.
+            for a in argv.iter().skip(3) {
+                check_argv.push(a.clone());
+            }
+            let static_exit = run_check(&check_argv);
+
+            // Run pg-royalty, forwarding --db-url and --output-dir if present.
+            let mut pg_argv = vec![
+                "gangstarr".to_string(),
+                "pg-royalty".to_string(),
+            ];
+            if let Some(url) = parse_flag(argv, "--db-url") {
+                pg_argv.push("--db-url".to_string());
+                pg_argv.push(url);
+            }
+            if let Some(dir) = parse_flag(argv, "--output-dir") {
+                pg_argv.push("--output-dir".to_string());
+                pg_argv.push(dir);
+            }
+            let pg_exit = pg_royalty::run(&pg_argv);
+
+            static_exit.max(pg_exit)
+        }
         "steeze" => {
             crate::steeze::run(argv)
         }
@@ -309,9 +351,10 @@ fn print_usage() {
     println!("gangstarr — Django ORM performance profiler");
     println!();
     println!("USAGE:");
+    println!("    gangstarr fullclip [path]            Run check + pg-royalty together (the works)");
     println!("    gangstarr check <path>              Scan Python files for ORM anti-patterns");
     println!("    gangstarr history [path]             Show analysis run history");
-    println!("    gangstarr pg-royalty                 Analyze a live Postgres DB (see --help)");
+    println!("    gangstarr pg-royalty                 Analyze a live Postgres DB");
     println!("    gangstarr steeze [path]              Build AI briefing from findings");
     println!();
     println!("OPTIONS (check):");

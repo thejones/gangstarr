@@ -105,6 +105,25 @@ fn check_extension(client: &mut Client) -> bool {
     }
 }
 
+/// True if a query looks like gangstarr's own catalog introspection or
+/// targets only internal pg_catalog / information_schema tables.
+fn is_internal_query(query: &str) -> bool {
+    let q = query.to_lowercase();
+    // Skip gangstarr's own catalog queries.
+    q.contains("pg_stat_statements")
+        || q.contains("pg_stat_user_tables")
+        || q.contains("pg_stat_user_indexes")
+        || q.contains("pg_statio_user_tables")
+        || q.contains("pg_extension")
+        || q.contains("information_schema.columns")
+        || q.contains("pg_constraint")
+        || q.contains("pg_index")
+        || q.contains("pg_attribute")
+        || q.contains("pg_namespace")
+        || q.contains("pg_class")
+        || q.contains("pg_depend")
+}
+
 fn print_top_queries(client: &mut Client) {
     // Postgres 13+ uses total_exec_time; older versions use total_time.
     // Try the newer column name first.
@@ -116,7 +135,7 @@ fn print_top_queries(client: &mut Client) {
                       rows
                FROM pg_stat_statements
                ORDER BY total_exec_time DESC
-               LIMIT 10";
+               LIMIT 50";
 
     let rows = match client.query(sql, &[]) {
         Ok(r) => r,
@@ -127,7 +146,7 @@ fn print_top_queries(client: &mut Client) {
                         mean_time AS mean_exec_time,
                         stddev_time AS stddev_exec_time, rows
                  FROM pg_stat_statements
-                 ORDER BY total_time DESC LIMIT 10",
+                 ORDER BY total_time DESC LIMIT 50",
                 &[],
             ) {
                 Ok(r) => r,
@@ -139,8 +158,13 @@ fn print_top_queries(client: &mut Client) {
         }
     };
 
-    if rows.is_empty() {
-        println!("{}No query statistics collected yet. Run some queries first.{}", DIM, RESET);
+    // Filter out internal/catalog queries.
+    let filtered: Vec<_> = rows.iter()
+        .filter(|row| !is_internal_query(row.get::<_, &str>(0)))
+        .collect();
+
+    if filtered.is_empty() {
+        println!("{}No application query statistics collected yet. Run some queries first.{}", DIM, RESET);
         return;
     }
 
@@ -152,7 +176,7 @@ fn print_top_queries(client: &mut Client) {
     );
     println!("{}", "─".repeat(90));
 
-    for row in &rows {
+    for row in filtered.iter().take(10) {
         let query: String = row.get(0);
         let calls: i64 = row.get(1);
         let total: f64 = row.get(2);
@@ -513,17 +537,33 @@ fn build_query_code_map(client: &mut Client, gangstarr_db: &str) -> Vec<QueryCod
     let static_counts = load_static_finding_counts(gangstarr_db);
 
     let mut entries = Vec::new();
-    for (rank, row) in rows.iter().enumerate() {
+    let mut rank_counter = 0usize;
+    for row in rows.iter() {
         let query: String = row.get(0);
         let calls: i64 = row.get(1);
         let total_ms: f64 = row.get(2);
         let mean_ms: f64 = row.get(3);
         let row_count: i64 = row.get(4);
 
+        // Skip internal/catalog queries — only show application queries.
+        if is_internal_query(&query) {
+            continue;
+        }
+
         let tables = extract_table_names(&query);
         if tables.is_empty() {
             continue;
         }
+
+        // Skip entries where ALL tables are pg_catalog/internal.
+        let has_user_table = tables.iter().any(|t| {
+            !t.starts_with("pg_") && !t.starts_with("sql_") && t != "information_schema"
+        });
+        if !has_user_table {
+            continue;
+        }
+
+        rank_counter += 1;
 
         // Find the first model name match and cross-reference with static findings.
         let mut model_name = None;
@@ -550,7 +590,7 @@ fn build_query_code_map(client: &mut Client, gangstarr_db: &str) -> Vec<QueryCod
         let table_str = tables.join(", ");
 
         entries.push(QueryCodeEntry {
-            query_rank: (rank + 1) as i32,
+            query_rank: rank_counter as i32,
             query_text: truncate_query(&query, 120),
             calls,
             total_exec_ms: total_ms,
