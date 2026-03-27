@@ -85,7 +85,7 @@ pub fn build_briefing(db_path: &str) -> Result<Value> {
 
     // ── Assemble briefing ─────────────────────────────────────────────────
     let briefing = serde_json::json!({
-"gangstarr_version": "0.1.0",
+"gangstarr_version": "0.2.0",
         "generated_at": now_iso(),
         "db_path": db_path,
         "runs": runs,

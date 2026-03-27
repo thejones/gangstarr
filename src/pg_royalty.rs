@@ -17,9 +17,6 @@ fn parse_flag(argv: &[String], flag: &str) -> Option<String> {
     None
 }
 
-fn has_flag(argv: &[String], flag: &str) -> bool {
-    argv.iter().any(|a| a == flag)
-}
 
 // ── Timestamp helper (reuse logic from cli.rs) ────────────────────────────────
 
@@ -74,14 +71,6 @@ pub fn run(argv: &[String]) -> i32 {
     let output_dir = parse_flag(argv, "--output-dir").unwrap_or_else(|| ".gangstarr".to_string());
     let db_path = format!("{}/gangstarr.db", output_dir);
 
-    let review = has_flag(argv, "--review");
-    let stat_findings = has_flag(argv, "--stat-findings");
-
-    if !review && !stat_findings {
-        print_usage();
-        return 2;
-    }
-
     let (run_id, created_at) = now_iso();
 
     // Ensure SQLite DB exists before we write findings.
@@ -91,7 +80,8 @@ pub fn run(argv: &[String]) -> i32 {
 
     let mut total_exit = 0i32;
 
-    if review {
+    // Always run both schema review and stat findings.
+    {
         let (findings, exit_code) = pg_schema::run_review(&db_url);
         total_exit = total_exit.max(exit_code);
         if exit_code <= 1 && !findings.is_empty() {
@@ -101,7 +91,7 @@ pub fn run(argv: &[String]) -> i32 {
         }
     }
 
-    if stat_findings {
+    {
         let (findings, exit_code) = pg_stats::run_stat_findings(&db_url, &db_path);
         total_exit = total_exit.max(exit_code);
         if exit_code <= 1 && !findings.is_empty() {
@@ -124,13 +114,12 @@ pub fn run(argv: &[String]) -> i32 {
 
 // ── Usage ─────────────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub fn print_usage() {
     println!("gangstarr pg-royalty — live Postgres schema & statistics analysis");
     println!();
     println!("USAGE:");
-    println!("    gangstarr pg-royalty --review            Audit schema: FK indexes, PKs, wide tables");
-    println!("    gangstarr pg-royalty --stat-findings     Analyze pg_stat_statements query patterns");
-    println!("    gangstarr pg-royalty --review --stat-findings   Both at once");
+    println!("    gangstarr pg-royalty              Run full schema review + stat analysis");
     println!();
     println!("CONNECTION:");
     println!("    --db-url <url>    PostgreSQL connection URL");
@@ -143,8 +132,11 @@ pub fn print_usage() {
     println!("FINDINGS:");
     println!("    G201  Missing index on FK column / table without PK / wide table");
     println!("    G202  High rows/call ratio — possible .all() or missing LIMIT");
-    println!("    G203  Unused index — consuming write overhead with no read benefit");
-    println!("    G204  Unstable query plan — high stddev/mean execution time ratio");
+    println!("    G203  Unused index");
+    println!("    G204  Unstable query plan — high stddev/mean execution time");
+    println!("    G205  Sequential scans on large tables — likely missing index");
+    println!("    G206  Table bloat — high dead tuple ratio");
+    println!("    G207  Cache miss rate — table not fitting in shared_buffers");
     println!();
     println!("SAFETY GUARANTEE:");
     println!("    All SQL executed against your database is read-only (SELECT / catalog");

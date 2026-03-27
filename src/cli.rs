@@ -102,12 +102,12 @@ pub fn run_check(argv: &[String]) -> i32 {
                 }
             });
 
-            // Merge --exclude flags with [tool.gangstarr] exclude from pyproject.toml.
-            let mut excludes = parse_flags(argv, "--exclude");
+            // Merge project excludes from [tool.gangstarr] in pyproject.toml.
             let project_root = if path.is_dir() { path } else { path.parent().unwrap_or(Path::new(".")) };
-            excludes.extend(read_project_excludes(project_root));
+            let excludes = read_project_excludes(project_root);
+            let includes = parse_flags(argv, "--include");
 
-            let findings = static_analysis::step_in_the_arena(path, &excludes);
+            let findings = static_analysis::step_in_the_arena(path, &excludes, &includes);
 
             // ── Persist to SQLite ─────────────────────────────────────────
             let millis = SystemTime::now()
@@ -316,7 +316,7 @@ fn print_usage() {
     println!();
     println!("OPTIONS (check):");
     println!("    --output-dir <dir>                  Output directory (default: <path>/.gangstarr)");
-    println!("    --exclude <pattern>                 Skip files/dirs matching pattern (repeatable)");
+    println!("    --include tests                     Include test files (excluded by default)");
     println!();
     println!("OPTIONS (history):");
     println!("    --findings                          Show per-finding detail (all sources)");
@@ -331,6 +331,9 @@ fn print_usage() {
     println!("    G106  Python-side aggregation — use .aggregate() or .annotate()");
     println!("    G107  .save() in a loop — use bulk_create() or bulk_update()");
     println!("    G108  GraphQL N+1 — implicit resolver on related field without DataLoader");
+    println!("    G109  Queryset re-evaluation — same queryset consumed twice (duplicate SQL)");
+    println!("    G110  select_related() incompleteness — nested relation not covered");
+    println!("    G111  count() + iterate — two SQL queries when one suffices");
     println!();
     println!("POSTGRES RULES (pg-royalty):");
     println!("    G201  Missing index / missing PK / wide table");

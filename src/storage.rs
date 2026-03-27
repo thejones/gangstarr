@@ -81,6 +81,21 @@ CREATE TABLE IF NOT EXISTS ai_briefings (
     briefing_json TEXT NOT NULL,
     status        TEXT NOT NULL DEFAULT 'pending'
 );
+
+CREATE TABLE IF NOT EXISTS query_code_map (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id           TEXT    NOT NULL REFERENCES runs(run_id),
+    query_rank       INTEGER NOT NULL,
+    query_text       TEXT    NOT NULL,
+    calls            INTEGER NOT NULL,
+    total_exec_ms    REAL    NOT NULL,
+    mean_exec_ms     REAL    NOT NULL,
+    rows_total       INTEGER NOT NULL,
+    table_names      TEXT    NOT NULL,
+    model_name       TEXT,
+    model_file       TEXT,
+    static_finding_count INTEGER NOT NULL DEFAULT 0
+);
 ";
 
 // ── Connection + migration ────────────────────────────────────────────────────
@@ -192,6 +207,7 @@ pub fn insert_query_fingerprints(conn: &Connection, run_id: &str, groups: &[Valu
 }
 
 /// Batch-insert field usage records from a serializer run.
+#[allow(dead_code)]
 pub fn insert_field_usage(conn: &Connection, run_id: &str, records: &[Value]) -> Result<()> {
     let mut stmt = conn.prepare(
         "INSERT INTO field_usage (run_id, model, field, endpoint, serializer)
@@ -384,7 +400,54 @@ pub fn insert_pg_findings(
     Ok(())
 }
 
-// ── ai_briefings ──────────────────────────────────────────────────────────
+// ── query_code_map ─────────────────────────────────────────────────────────
+
+/// A single top-query → code mapping entry.
+#[derive(Debug, Clone)]
+pub struct QueryCodeEntry {
+    pub query_rank: i32,
+    pub query_text: String,
+    pub calls: i64,
+    pub total_exec_ms: f64,
+    pub mean_exec_ms: f64,
+    pub rows_total: i64,
+    pub table_names: String,
+    pub model_name: Option<String>,
+    pub model_file: Option<String>,
+    pub static_finding_count: i64,
+}
+
+/// Batch-insert top-query → code path mappings for a run.
+pub fn insert_query_code_map(
+    conn: &Connection,
+    run_id: &str,
+    entries: &[QueryCodeEntry],
+) -> Result<()> {
+    let mut stmt = conn.prepare(
+        "INSERT INTO query_code_map
+             (run_id, query_rank, query_text, calls, total_exec_ms, mean_exec_ms,
+              rows_total, table_names, model_name, model_file, static_finding_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+    )?;
+    for e in entries {
+        stmt.execute(params![
+            run_id,
+            e.query_rank,
+            e.query_text,
+            e.calls,
+            e.total_exec_ms,
+            e.mean_exec_ms,
+            e.rows_total,
+            e.table_names,
+            e.model_name,
+            e.model_file,
+            e.static_finding_count,
+        ])?;
+    }
+    Ok(())
+}
+
+// ── ai_briefings ────────────────────────────────────────────────────────────
 
 /// Insert a new AI briefing into the database.
 pub fn insert_ai_briefing(
