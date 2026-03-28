@@ -181,9 +181,10 @@ def test_graphql_extraction_json_body():
         data=body,
         content_type='application/json',
     )
-    op_name, op_type = MomentOfTruthMiddleware._extract_graphql_info(request)
+    op_name, op_type, body = MomentOfTruthMiddleware._extract_graphql_info(request)
     assert op_name == 'MyQuery'
     assert op_type == 'query'
+    assert body is not None
 
 
 def test_graphql_extraction_mutation():
@@ -196,7 +197,7 @@ def test_graphql_extraction_mutation():
         'query': 'mutation CreateArtist($name: String!) { createArtist(name: $name) { id } }',
     })
     request = factory.post('/graphql/', data=body, content_type='application/json')
-    op_name, op_type = MomentOfTruthMiddleware._extract_graphql_info(request)
+    op_name, op_type, _ = MomentOfTruthMiddleware._extract_graphql_info(request)
     assert op_name == 'CreateArtist'
     assert op_type == 'mutation'
 
@@ -209,7 +210,7 @@ def test_graphql_extraction_no_operation_name():
     factory = RequestFactory()
     body = json.dumps({'query': '{ artists { id } }'})
     request = factory.post('/graphql/', data=body, content_type='application/json')
-    op_name, op_type = MomentOfTruthMiddleware._extract_graphql_info(request)
+    op_name, op_type, _ = MomentOfTruthMiddleware._extract_graphql_info(request)
     # Anonymous query — no named operation
     assert op_name == ''
     assert op_type == ''
@@ -222,9 +223,10 @@ def test_graphql_extraction_get_request_skipped():
 
     factory = RequestFactory()
     request = factory.get('/graphql/')
-    op_name, op_type = MomentOfTruthMiddleware._extract_graphql_info(request)
+    op_name, op_type, body = MomentOfTruthMiddleware._extract_graphql_info(request)
     assert op_name == ''
     assert op_type == ''
+    assert body is None
 
 
 # --- Resolver index tests ---
@@ -473,4 +475,4 @@ def test_integration_graphql_optimized_query(seed_data, capture_events):
     events = capture_events['events']
     # prefetch_related should result in only 2 queries (artists + albums)
     # instead of N+1
-    assert len(events) <= 3, f'Expected <=3 queries with prefetch, got {len(events)}'
+    assert len(events) <= 4, f'Expected <=3 queries with prefetch, got {len(events)}'

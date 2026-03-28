@@ -2,10 +2,18 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 from django.conf import settings
 
 from .context_manager import full_clip
+from .discipline import (
+    Discipline,
+    RequestTrace,
+    compute_request_fingerprint,
+    hash_graphql_variables,
+    resolve_client_fingerprint,
+)
 
 # Default paths to exclude from profiling
 DEFAULT_EXCLUDE_PATHS: list[str] = [
@@ -49,7 +57,17 @@ class MomentOfTruthMiddleware:
             return self.get_response(request)
 
         view_name = self._resolve_view_name(request)
-        operation_name, operation_type = self._extract_graphql_info(request)
+        operation_name, operation_type, body_data = self._extract_graphql_info(request)
+
+        # Discipline: compute fingerprints before the request executes.
+        client_fp, client_fp_source = resolve_client_fingerprint(request)
+        variables_hash = hash_graphql_variables(body_data)
+        request_fp = compute_request_fingerprint(
+            method=request.method,
+            path=request.path,
+            operation_name=operation_name,
+            variables_hash=variables_hash,
+        )
 
         meta_data = dict(
             url=request.path,
@@ -65,6 +83,34 @@ class MomentOfTruthMiddleware:
             fc._premier.request_context.view_name = view_name
             fc._premier.request_context.operation_name = operation_name
             fc._premier.request_context.operation_type = operation_type
+            fc._premier.request_context.client_fingerprint = client_fp
+            fc._premier.request_context.client_fp_source = client_fp_source
+            fc._premier.request_context.request_fingerprint = request_fp
+
+        # Discipline: register the trace and check for cross-request duplicates.
+        sql_fps = []
+        analysis = fc.reporter._run_analysis() if hasattr(fc.reporter, '_run_analysis') else None
+        if analysis:
+            sql_fps = [g['fingerprint'] for g in analysis.get('groups', [])]
+
+        trace = RequestTrace(
+            timestamp=time.monotonic(),
+            client_fingerprint=client_fp,
+            client_fp_source=client_fp_source,
+            request_fingerprint=request_fp,
+            request_id=fc._premier.request_context.request_id,
+            method=request.method,
+            path=request.path,
+            operation_name=operation_name,
+            operation_type=operation_type,
+            sql_fingerprints=sql_fps,
+            total_queries=analysis['summary']['total_queries'] if analysis else 0,
+            total_duration_ms=analysis['summary']['total_duration_ms'] if analysis else 0.0,
+        )
+        discipline_findings = Discipline.register(trace)
+
+        if discipline_findings:
+            self._report_discipline_findings(discipline_findings)
 
         return response
 
@@ -92,14 +138,32 @@ class MomentOfTruthMiddleware:
         return ''
 
     @staticmethod
-    def _extract_graphql_info(request) -> tuple[str, str]:
+    def _report_discipline_findings(findings) -> None:
+        """Print cross-request duplicate findings to the console."""
+        BOLD = "\033[1m"
+        MAGENTA = "\033[35m"
+        YELLOW = "\033[33m"
+        RED = "\033[31m"
+        RESET = "\033[0m"
+
+        for f in findings:
+            color = RED if f.severity == 'error' else (YELLOW if f.severity == 'warning' else MAGENTA)
+            print(
+                f"{color}{BOLD}[{f.code}] {f.title}{RESET}  "
+                f"{f.message}"
+            )
+
+    @staticmethod
+    def _extract_graphql_info(request) -> tuple[str, str, dict | None]:
         """Extract operation name and type from a GraphQL request.
 
         Handles both JSON body (standard) and form-encoded (GraphiQL) payloads.
-        Returns (operation_name, operation_type) or ('', '') if not GraphQL.
+        Returns (operation_name, operation_type, body_data) where body_data is
+        the parsed body dict (or None if not GraphQL). The body_data is used
+        downstream to hash GraphQL variables for request fingerprinting.
         """
         if request.method != 'POST':
-            return '', ''
+            return '', '', None
 
         content_type = request.content_type or ''
         body_data: dict = {}
@@ -118,12 +182,12 @@ class MomentOfTruthMiddleware:
                     'operationName': request.POST.get('operationName', ''),
                 }
             else:
-                return '', ''
+                return '', '', None
         except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
-            return '', ''
+            return '', '', None
 
         if not isinstance(body_data, dict):
-            return '', ''
+            return '', '', None
 
         # 1. Check the explicit operationName field
         op_name = body_data.get('operationName') or ''
@@ -142,4 +206,4 @@ class MomentOfTruthMiddleware:
         if op_name and not op_type:
             op_type = 'query'
 
-        return op_name, op_type
+        return op_name, op_type, body_data

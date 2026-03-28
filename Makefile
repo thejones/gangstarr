@@ -1,7 +1,7 @@
 .PHONY: help tree test install build migrate loaddata dev runserver \
 	lint lint-fix bump-patch bump-minor bump-major changelog precommit-install \
 	db-up db-down db-reset db-populate db-shell pg-exec \
-	check pg-royalty history
+	check pg-royalty history ensure-db
 
 MANAGE = python python/gangstarr/testapp/manage.py
 PG_ENV = PGDATABASE=gangstarr PGUSER=gangstarr PGPASSWORD=gangstarr PGHOST=localhost PGPORT=5433
@@ -14,8 +14,13 @@ help:
 tree:
 	tree -I '.venv|target|__pycache__|*.pyc|.pytest_cache|*.egg-info|*.so|*.dylib|*.dSYM|.git'
 
+## Ensure Docker + Postgres container are running
+ensure-db:
+	@docker info > /dev/null 2>&1 || (open -a Docker && echo "Starting Docker Desktop…" && until docker info > /dev/null 2>&1; do sleep 2; done)
+	@docker compose ps --status running --format '{{.Service}}' | grep -q '^db$$' || $(MAKE) db-up
+
 ## Run tests
-test:
+test: ensure-db
 	source .venv/bin/activate && $(PG_ENV) pytest
 
 ## Install with dev deps
