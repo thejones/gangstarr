@@ -367,7 +367,6 @@ fn print_usage() {
     println!();
     println!("STATIC RULES:");
     println!("    G101  Possible N+1 — related field accessed in loop or query inside loop");
-    println!("    G102  .all() without .only()/.values() — over-fetching fields");
     println!("    G103  Python-side filtering — use .filter() instead of list comprehension");
     println!("    G104  len(queryset) — use .count() for a SQL COUNT");
     println!("    G105  Queryset truthiness check — use .exists()");
@@ -383,6 +382,9 @@ fn print_usage() {
     println!("    G202  High rows/call ratio — possible .all() or missing LIMIT");
     println!("    G203  Unused index");
     println!("    G204  Unstable query plan — high stddev/mean execution time");
+    println!("    G205  Sequential scans on large tables — likely missing index");
+    println!("    G206  Table bloat — high dead tuple ratio");
+    println!("    G207  Cache miss rate — table not fitting in shared_buffers");
     println!();
     println!("OPTIONS (steeze):");
     println!("    --kiro                              Install .kiro/ templates, store briefing, launch kiro-cli");

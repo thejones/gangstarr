@@ -17,7 +17,7 @@ class ReportingOptions:
     sort_by: str = 'line_no'
     modules: list[str] | None = None
     max_sql_length: int | None = None
-    count_threshold: int = 1
+    count_threshold: int = 4
     duration_threshold: float = 0.0
 
     def __post_init__(self):
@@ -29,6 +29,7 @@ class ReportingOptions:
 class PrintingOptions(ReportingOptions):
     count_highlighting_threshold: int = 5
     duration_highlighting_threshold: float = 0.5
+    output_mode: str = 'compact'  # 'compact' | 'full'
 
 
 @dataclass
@@ -122,7 +123,7 @@ def _collect_file_locations(groups: list[dict]) -> tuple[list[tuple[str, str]], 
     return query_locs, resolver_locs
 
 
-def _format_report(analysis: dict[str, Any], request_context=None) -> str:
+def _format_report(analysis: dict[str, Any], request_context=None, output_mode: str = 'compact') -> str:
     """Format an analysis result into the structured console report."""
     summary = analysis['summary']
     groups = analysis['groups']
@@ -175,61 +176,63 @@ def _format_report(analysis: dict[str, Any], request_context=None) -> str:
     lines.append(f"| {'RESP':<7} | {'default':<8} | {reads:>5} | {writes:>6} | {total:>5} | {dupes:>5} |")
     lines.append("")
 
-    # Files section (GraphQL only — show query entry points and resolver locations)
-    has_gql = request_context and (
-        getattr(request_context, 'operation_name', '')
-        or getattr(request_context, 'operation_type', '')
-    )
-    if has_gql:
-        query_locations, resolver_locations = _collect_file_locations(groups)
-        if query_locations or resolver_locations:
-            lines.append(f"{BOLD}Files{RESET}")
-            lines.append(SINGLE_LINE)
-            for label, loc in query_locations:
-                lines.append(f"{label}")
-                lines.append(f"  {loc}")
-            for label, loc in resolver_locations:
-                lines.append(f"{label}")
-                lines.append(f"  {loc}")
-            lines.append("")
-
-    # Consolidated findings by callsite
-    if consolidated:
-        lines.append(f"{BOLD}Consolidated findings by callsite{RESET}")
-        lines.append(SINGLE_LINE)
-        lines.append("")
-        loc_col_width = 60
-        col_hdr = (
-            f"| {'File:Line':<{loc_col_width}} | {'Total Q':>7} "
-            f"| {'Dup Groups':>10} | {'Worst Rep':>9} "
-            f"| {'Dup Time':>8} | {'Flags':<10} |"
+    # ── Full mode only: Files + Consolidated findings ──────────────────
+    if output_mode == 'full':
+        # Files section (GraphQL only — show query entry points and resolver locations)
+        has_gql = request_context and (
+            getattr(request_context, 'operation_name', '')
+            or getattr(request_context, 'operation_type', '')
         )
-        lines.append(col_hdr)
-        sep = f"|{'-'*(loc_col_width+2)}|{'-'*9}|{'-'*12}|{'-'*11}|{'-'*10}|{'-'*12}|"
-        lines.append(sep)
-        for c in consolidated:
-            loc = f"{c['file']}:{c['line']}"
-            # Append caller chain if available
-            chain = c.get('caller_chain', [])
-            if chain:
-                caller = chain[0]
-                cf = caller['file']
-                caller_file = cf.rsplit('/', 1)[-1] if '/' in cf else cf
-                loc += f" \u2192 {caller_file}:{caller['line']}"
-            if len(loc) > loc_col_width:
-                loc = "\u2026" + loc[-(loc_col_width - 1):]
-            worst = f"{c['worst_repeat']}x" if c['worst_repeat'] > 0 else "-"
-            dup_time = f"{c['dup_duration_ms']:.1f}ms" if c['dup_duration_ms'] > 0 else "-"
-            flags = ', '.join(c['flags']) if c['flags'] else ''
-            fl = c.get('flags', [])
-            color = RED if 'HOT' in fl else (YELLOW if 'N+1' in fl else GREEN)
-            row = (
-                f"| {loc:<{loc_col_width}} | {c['total_queries']:>7} "
-                f"| {c['dup_groups']:>10} | {worst:>9} "
-                f"| {dup_time:>8} | {flags:<10} |"
+        if has_gql:
+            query_locations, resolver_locations = _collect_file_locations(groups)
+            if query_locations or resolver_locations:
+                lines.append(f"{BOLD}Files{RESET}")
+                lines.append(SINGLE_LINE)
+                for label, loc in query_locations:
+                    lines.append(f"{label}")
+                    lines.append(f"  {loc}")
+                for label, loc in resolver_locations:
+                    lines.append(f"{label}")
+                    lines.append(f"  {loc}")
+                lines.append("")
+
+        # Consolidated findings by callsite
+        if consolidated:
+            lines.append(f"{BOLD}Consolidated findings by callsite{RESET}")
+            lines.append(SINGLE_LINE)
+            lines.append("")
+            loc_col_width = 60
+            col_hdr = (
+                f"| {'File:Line':<{loc_col_width}} | {'Total Q':>7} "
+                f"| {'Dup Groups':>10} | {'Worst Rep':>9} "
+                f"| {'Dup Time':>8} | {'Flags':<10} |"
             )
-            lines.append(f"{color}{row}{RESET}")
-        lines.append("")
+            lines.append(col_hdr)
+            sep = f"|{'-'*(loc_col_width+2)}|{'-'*9}|{'-'*12}|{'-'*11}|{'-'*10}|{'-'*12}|"
+            lines.append(sep)
+            for c in consolidated:
+                loc = f"{c['file']}:{c['line']}"
+                # Append caller chain if available
+                chain = c.get('caller_chain', [])
+                if chain:
+                    caller = chain[0]
+                    cf = caller['file']
+                    caller_file = cf.rsplit('/', 1)[-1] if '/' in cf else cf
+                    loc += f" \u2192 {caller_file}:{caller['line']}"
+                if len(loc) > loc_col_width:
+                    loc = "\u2026" + loc[-(loc_col_width - 1):]
+                worst = f"{c['worst_repeat']}x" if c['worst_repeat'] > 0 else "-"
+                dup_time = f"{c['dup_duration_ms']:.1f}ms" if c['dup_duration_ms'] > 0 else "-"
+                flags = ', '.join(c['flags']) if c['flags'] else ''
+                fl = c.get('flags', [])
+                color = RED if 'HOT' in fl else (YELLOW if 'N+1' in fl else GREEN)
+                row = (
+                    f"| {loc:<{loc_col_width}} | {c['total_queries']:>7} "
+                    f"| {c['dup_groups']:>10} | {worst:>9} "
+                    f"| {dup_time:>8} | {flags:<10} |"
+                )
+                lines.append(f"{color}{row}{RESET}")
+            lines.append("")
 
     # Top repeated query groups
     repeated = [g for g in groups if g['count'] > 1]
@@ -244,7 +247,8 @@ def _format_report(analysis: dict[str, Any], request_context=None) -> str:
             mx = g.get('max_duration_ms', 0)
             timing = f"{g['total_duration_ms']:.1f}ms total | avg {avg:.1f}ms | p50 {p50:.1f}ms | max {mx:.1f}ms"
             lines.append(f"\n{YELLOW}[{g['count']}x | {timing}]{RESET} {loc}")
-            lines.append(f"{DIM}{g['normalized_sql'][:200]}{RESET}")
+            if output_mode == 'full':
+                lines.append(f"{DIM}{g['normalized_sql'][:200]}{RESET}")
         lines.append("")
 
     return "\n".join(lines)
@@ -254,7 +258,8 @@ class PrintingGuru(Guru):
     def report(self):
         analysis = self._run_analysis()
         if analysis:
-            print(_format_report(analysis, self.premier.request_context))
+            mode = getattr(self.options, 'output_mode', 'compact')
+            print(_format_report(analysis, self.premier.request_context, output_mode=mode))
         else:
             # Fallback to legacy output if no events collected
             self._legacy_report()

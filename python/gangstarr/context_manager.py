@@ -10,9 +10,6 @@ from .premier import Premier
 
 class full_clip(contextlib.ContextDecorator):
     def __init__(self, reporting_options: ReportingOptions = None, meta_data: dict[str, str] = None):
-        if not hasattr(settings, 'GANGSTAR_BASE_DIR'):
-            raise ValueError('GANGSTAR_BASE_DIR setting is required')
-
         self.meta_data = meta_data
         if reporting_options is None:
             try:

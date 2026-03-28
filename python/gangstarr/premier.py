@@ -87,7 +87,7 @@ class Premier:
                 if app_frame is None:
                     app_frame = frame
                 elif len(caller_frames) < 2:
-                    relative = str(os.path.relpath(frame.filename, settings.GANGSTAR_BASE_DIR))
+                    relative = str(os.path.relpath(frame.filename, self._get_base_dir()))
                     caller_frames.append({
                         'file': relative,
                         'line': frame.lineno,
@@ -96,7 +96,7 @@ class Premier:
 
         if app_frame:
             filename = app_frame.filename
-            relative_path = str(os.path.relpath(app_frame.filename, settings.GANGSTAR_BASE_DIR))
+            relative_path = str(os.path.relpath(app_frame.filename, self._get_base_dir()))
 
             if self.reporting_options.modules is not None:
                 if relative_path not in self.reporting_options.modules:
@@ -186,14 +186,22 @@ class Premier:
             raise ValueError("Unable to determine application frame for SQL execution")
 
     @staticmethod
+    def _get_base_dir() -> str:
+        """Resolve the project base directory.
+
+        Priority: GANGSTAR_BASE_DIR > BASE_DIR > cwd.
+        """
+        base = getattr(settings, 'GANGSTAR_BASE_DIR', None)
+        if base:
+            return str(base)
+        base = getattr(settings, 'BASE_DIR', None)
+        if base:
+            return str(base)
+        return os.getcwd()
+
+    @staticmethod
     def is_application_code(filename: str) -> bool:
-        try:
-            base_dir = settings.GANGSTAR_BASE_DIR
-        except AttributeError:
-            raise ValueError(
-                "GANGSTAR_BASE_DIR not set in settings. "
-                "Define manually or use the built in gangstarr.default_base_dir function",
-            )
+        base_dir = Premier._get_base_dir()
         return filename.startswith(base_dir)
 
     @staticmethod

@@ -88,15 +88,108 @@ For each actionable finding:
 
 ### Static Rules (G1xx)
 - **G101** — N+1: related field accessed in loop without `select_related`/`prefetch_related`
-- **G102** — `.all()` without `.only()`/`.values()` — over-fetching fields
 - **G103** — Python-side filtering instead of `.filter()`
 - **G104** — `len(queryset)` instead of `.count()`
 - **G105** — Queryset truthiness check instead of `.exists()`
 - **G106** — Python-side aggregation instead of `.aggregate()`/`.annotate()`
 - **G107** — `.save()` in loop instead of `bulk_create()`/`bulk_update()`
+- **G108** — GraphQL N+1: implicit resolver without DataLoader
+- **G109** — Queryset re-evaluation: same queryset consumed twice (duplicate SQL)
+- **G110** — `select_related()` incompleteness: nested relation not covered
+- **G111** — `count()` + iterate: two SQL queries when one suffices
 
 ### Postgres Rules (G2xx)
 - **G201** — Missing index on FK/filter column, missing PK, or wide table
 - **G202** — High rows/call ratio (possible `.all()` or missing LIMIT)
 - **G203** — Unused index
 - **G204** — Unstable query plan (high stddev/mean execution time)
+- **G205** — Sequential scans on large tables — likely missing index
+- **G206** — Table bloat — high dead tuple ratio needs VACUUM
+- **G207** — Cache miss rate — table not fitting in shared_buffers
+
+## Analyzing a Specific Rule
+
+When the user asks to analyze a specific rule (e.g. "Analyze G109 errors"), use the following SQLite queries against `.gangstarr/gangstarr.db` to pull the relevant findings and context.
+
+### Static findings by rule
+```sql
+-- All findings for a specific rule (replace G109 with the rule code)
+SELECT file, line, message, severity, suggestion
+FROM static_findings
+WHERE rule = 'G109'
+ORDER BY file, line;
+```
+
+### Static findings summary by rule
+```sql
+-- Count of findings per rule across all runs
+SELECT rule, COUNT(*) as count, severity
+FROM static_findings
+GROUP BY rule, severity
+ORDER BY count DESC;
+```
+
+### Top files affected by a rule
+```sql
+-- Which files have the most findings for a rule
+SELECT file, COUNT(*) as count
+FROM static_findings
+WHERE rule = 'G109'
+GROUP BY file
+ORDER BY count DESC
+LIMIT 20;
+```
+
+### Postgres findings by rule
+```sql
+-- All PG findings for a specific rule
+SELECT code, severity, table_name, column_name, message, suggestion
+FROM pg_findings
+WHERE code = 'G205'
+ORDER BY severity, table_name;
+```
+
+### Cross-reference static findings with runtime data
+```sql
+-- Find static findings that have runtime evidence at the same callsite
+SELECT sf.rule, sf.file, sf.line, sf.message,
+       rf.code AS runtime_code, rf.message AS runtime_msg
+FROM static_findings sf
+JOIN runtime_findings rf
+  ON rf.file LIKE '%' || REPLACE(sf.file, '/', '%') || '%'
+  AND ABS(rf.line - sf.line) <= 2
+WHERE sf.rule = 'G101'
+ORDER BY sf.file, sf.line;
+```
+
+### Query code map — top expensive queries mapped to code
+```sql
+-- Top queries by cost with their Django model mapping
+SELECT query_rank, calls, total_exec_ms, table_names,
+       model_name, static_finding_count
+FROM query_code_map
+WHERE static_finding_count > 0
+ORDER BY total_exec_ms DESC
+LIMIT 20;
+```
+
+### Trend: findings over time
+```sql
+-- Compare finding counts between runs to see progress
+SELECT r.run_id, r.created_at,
+       COUNT(sf.id) as finding_count
+FROM runs r
+LEFT JOIN static_findings sf ON sf.run_id = r.run_id
+WHERE r.run_type = 'static'
+GROUP BY r.run_id
+ORDER BY r.created_at DESC
+LIMIT 10;
+```
+
+### Workflow for rule analysis
+
+1. Run the **summary query** to understand the scope
+2. Run the **top files** query to identify hotspots
+3. Read the source code at each file:line
+4. For each finding, determine if it's a true positive and propose a fix
+5. If runtime data exists, cross-reference to confirm the issue is real
