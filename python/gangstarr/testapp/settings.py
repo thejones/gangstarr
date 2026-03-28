@@ -36,6 +36,7 @@ MIDDLEWARE = [
 ]
 
 GANGSTAR_BASE_DIR = gangstarr.default_base_dir(__file__)
+GANGSTARR_COLOR_THEME = '505'
 
 GRAPHENE = {
     'MIDDLEWARE': ['gangstarr.graphene.DWYCKMiddleware'],

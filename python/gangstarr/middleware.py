@@ -140,17 +140,26 @@ class MomentOfTruthMiddleware:
     @staticmethod
     def _report_discipline_findings(findings) -> None:
         """Print cross-request duplicate findings to the console."""
-        BOLD = "\033[1m"
-        MAGENTA = "\033[35m"
-        YELLOW = "\033[33m"
-        RED = "\033[31m"
-        RESET = "\033[0m"
+        from gangstarr.themes import get_theme
+
+        theme_name = getattr(settings, 'GANGSTARR_COLOR_THEME', None)
+        # Also check the reporting options if set
+        if not theme_name:
+            opts = getattr(settings, 'GANGSTAR_REPORTING_OPTIONS', None)
+            if opts and hasattr(opts, 'color_theme'):
+                theme_name = opts.color_theme
+        theme = get_theme(theme_name)
 
         for f in findings:
-            color = RED if f.severity == 'error' else (YELLOW if f.severity == 'warning' else MAGENTA)
+            if f.severity == 'error':
+                color = theme.discipline_error
+            elif f.severity == 'warning':
+                color = theme.discipline_warning
+            else:
+                color = theme.discipline_info
             print(
-                f"{color}{BOLD}[{f.code}] {f.title}{RESET}  "
-                f"{f.message}"
+                f"{color}{theme.bold}[{f.code}] {f.title}{theme.reset}  "
+                f"{color}{f.message}{theme.reset}"
             )
 
     @staticmethod

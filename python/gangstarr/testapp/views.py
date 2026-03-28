@@ -1,13 +1,21 @@
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
 
-from .models import Artist
+from .models import Album, Artist
 from .my_module import get_artists
 
 
 def artists_view(request):
     artists = get_artists()
     return JsonResponse({'artists': artists})
+
+
+def artist_count(request):
+    """Simple JSON endpoint returning artist and album counts."""
+    return JsonResponse({
+        'artists': Artist.objects.count(),
+        'albums': Album.objects.count(),
+    })
 
 
 def home(request):
