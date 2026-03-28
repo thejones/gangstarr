@@ -19,7 +19,8 @@ pub trait Rule: Send + Sync {
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
     vec![
         Box::new(g101::G101::new()),
-        Box::new(g102::G102::new()),
+        // G102 disabled — too noisy without runtime field-usage data to make actionable.
+        // Code kept in g102.rs for future re-enablement.
         Box::new(g103::G103::new()),
         Box::new(g104::G104::new()),
         Box::new(g105::G105::new()),
