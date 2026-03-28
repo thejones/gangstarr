@@ -30,6 +30,7 @@ class PrintingOptions(ReportingOptions):
     count_highlighting_threshold: int = 5
     duration_highlighting_threshold: float = 0.5
     output_mode: str = 'compact'  # 'compact' | 'full'
+    color_theme: str = 'default'  # 'default' | '505' | 'retro' | 'muted'
 
 
 @dataclass
@@ -123,18 +124,27 @@ def _collect_file_locations(groups: list[dict]) -> tuple[list[tuple[str, str]], 
     return query_locs, resolver_locs
 
 
-def _format_report(analysis: dict[str, Any], request_context=None, output_mode: str = 'compact') -> str:
+def _format_report(
+    analysis: dict[str, Any],
+    request_context=None,
+    output_mode: str = 'compact',
+    color_theme: str = 'default',
+) -> str:
     """Format an analysis result into the structured console report."""
+    from gangstarr.themes import get_theme
+
+    theme = get_theme(color_theme)
+
     summary = analysis['summary']
     groups = analysis['groups']
     consolidated = analysis.get('consolidated', [])
 
-    BOLD = "\033[1m"
-    RED = "\033[31m"
-    YELLOW = "\033[33m"
-    GREEN = "\033[32m"
-    DIM = "\033[2m"
-    RESET = "\033[0m"
+    BOLD = theme.bold
+    RED = theme.error
+    YELLOW = theme.warning
+    GREEN = theme.ok
+    DIM = theme.dim
+    RESET = theme.reset
     DOUBLE_LINE = "\u2550" * 78
     SINGLE_LINE = "\u2500" * 78
 
@@ -259,15 +269,22 @@ class PrintingGuru(Guru):
         analysis = self._run_analysis()
         if analysis:
             mode = getattr(self.options, 'output_mode', 'compact')
-            print(_format_report(analysis, self.premier.request_context, output_mode=mode))
+            theme_name = getattr(self.options, 'color_theme', 'default')
+            print(_format_report(
+                analysis, self.premier.request_context,
+                output_mode=mode, color_theme=theme_name,
+            ))
         else:
             # Fallback to legacy output if no events collected
             self._legacy_report()
 
     def _legacy_report(self):
-        RED = "\033[31m"
-        GREEN = "\033[32m"
-        BOLD = "\033[1m"
+        from gangstarr.themes import get_theme
+
+        theme = get_theme(getattr(self.options, 'color_theme', 'default'))
+        RED = theme.error
+        GREEN = theme.ok
+        BOLD = theme.bold
         for name, module in self.query_info.items():
             print(f'{BOLD}{name}')
             print('=' * 2 * len(name))

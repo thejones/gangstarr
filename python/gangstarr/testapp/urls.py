@@ -10,6 +10,7 @@ urlpatterns = [
     path('artists/', views.artists_view, name='artists'),
     path('artists/<int:artist_id>/', views.artist_detail, name='artist_detail'),
     path('api/artists/', api_views.artist_list_api, name='artist_list_api'),
+    path('api/counts/', views.artist_count, name='artist_count'),
     path('graphql/', GraphQLView.as_view(graphiql=True, schema=schema), name='graphql'),
     path('graphql-dl/', graphql_dataloader_view, name='graphql_dataloader'),
 ]

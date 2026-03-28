@@ -1,4 +1,4 @@
-.PHONY: help tree test install build migrate loaddata dev runserver \
+.PHONY: help tree test install build migrate loaddata refresh-dev runserver \
 	lint lint-fix bump-patch bump-minor bump-major changelog precommit-install \
 	db-up db-down db-reset db-populate db-shell pg-exec \
 	check pg-royalty history ensure-db
@@ -26,6 +26,7 @@ test: ensure-db
 ## Install with dev deps
 install:
 	uv sync --extra dev
+	maturin develop
 
 ## Rebuild Rust extension
 build:
@@ -40,14 +41,15 @@ loaddata:
 	source .venv/bin/activate && $(PG_ENV) $(MANAGE) loaddata chinook
 
 ## Fresh DB + migrate + load fixtures, then run dev server
-dev:
+refresh-dev:
 	@docker info > /dev/null 2>&1 || (open -a Docker && echo "Starting Docker Desktop…" && until docker info > /dev/null 2>&1; do sleep 2; done)
 	$(MAKE) db-reset
 	source .venv/bin/activate && $(PG_ENV) python dev.py
 
 ## Run Django dev server (no Rust watch)
 runserver:
-	source .venv/bin/activate && $(PG_ENV) $(MANAGE) runserver 8001
+	@docker info > /dev/null 2>&1 || (open -a Docker && echo "Starting Docker Desktop…" && until docker info > /dev/null 2>&1; do sleep 2; done)
+	source .venv/bin/activate && $(PG_ENV) python dev.py
 
 ## ── Postgres (Supabase Docker) ──────────────────────────────────────
 
@@ -56,7 +58,7 @@ db-up:
 	docker compose up -d --wait
 	@echo "Postgres is ready on localhost:5433"
 
-## Stop Supabase Postgres container
+## Stop Postgres container
 db-down:
 	docker compose down
 
@@ -76,20 +78,6 @@ db-shell:
 ## Open psql shell in a dedicated client container
 pg-exec:
 	docker compose run --rm psql
-
-## ── Gangstarr CLI ───────────────────────────────────────────────────
-
-## Run static analysis on project (gangstarr check .)
-check:
-	source .venv/bin/activate && gangstarr check .
-
-## Inspect Postgres query stats (gangstarr pg-royalty)
-pg-royalty:
-	source .venv/bin/activate && $(PG_ENV) gangstarr pg-royalty
-
-## Show run history (gangstarr history)
-history:
-	source .venv/bin/activate && gangstarr history
 
 ## ── Code quality ────────────────────────────────────────────────────
 

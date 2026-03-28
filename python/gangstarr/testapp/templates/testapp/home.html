@@ -25,6 +25,14 @@
         .result-header button { background: none; border: 1px solid #666; color: #ccc; padding: 2px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; }
         .result-body { padding: 15px; color: #d4d4d4; font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 13px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
         .loading { color: #ffc107; }
+        .btn-discipline { background-color: #e74c3c; color: white; }
+        .btn-discipline:hover { background-color: #c0392b; }
+        .step { margin: 4px 0; padding: 6px 10px; border-radius: 4px; font-size: 13px; font-family: 'Menlo', monospace; }
+        .step-pending { background-color: #2d2d2d; color: #888; }
+        .step-running { background-color: #2d2d2d; color: #ffc107; }
+        .step-done { background-color: #1a3a1a; color: #4caf50; }
+        .step-dup { background-color: #3a1a1a; color: #e74c3c; font-weight: bold; }
+        .trace-header { color: #888; font-size: 11px; margin-left: 10px; }
     </style>
 </head>
 <body>
@@ -41,6 +49,7 @@
             <button class="btn btn-run" onclick="runGraphQL()">Run GraphQL Query</button>
             <button class="btn btn-run" style="background-color:#9b59b6;" onclick="runGraphQLDataLoader()">Run GraphQL (DataLoader)</button>
             <a class="btn btn-rest" href="/api/artists/">REST API</a>
+            <button class="btn btn-discipline" onclick="runDisciplineDemo()">🔥 Discipline Demo</button>
         </div>
         <div id="graphql-result" class="result-panel">
             <div class="result-header">
@@ -55,6 +64,13 @@
                 <button onclick="document.getElementById('graphql-dl-result').style.display='none'">Close</button>
             </div>
             <div id="graphql-dl-result-body" class="result-body"></div>
+        </div>
+        <div id="discipline-result" class="result-panel">
+            <div class="result-header" style="background-color:#922b21;">
+                <span>🔥 Discipline — Cross-Request Tracing Demo</span>
+                <button onclick="document.getElementById('discipline-result').style.display='none'">Close</button>
+            </div>
+            <div id="discipline-steps" class="result-body" style="max-height:600px;"></div>
         </div>
     </div>
     <script>
@@ -82,6 +98,88 @@
             .then(res => res.json())
             .then(data => { body.className = 'result-body'; body.textContent = JSON.stringify(data, null, 2); })
             .catch(err => { body.className = 'result-body'; body.textContent = 'Error: ' + err.message; });
+        }
+
+        /* ── Discipline Demo ────────────────────────────────────────── */
+
+        // Generate a W3C traceparent header (fake but valid format)
+        function makeTraceparent() {
+            const hex = (n) => [...Array(n)].map(() => Math.floor(Math.random()*16).toString(16)).join('');
+            // Same trace-id across all requests in this demo run (simulates one user session)
+            if (!window._demoTraceId) window._demoTraceId = hex(32);
+            return `00-${window._demoTraceId}-${hex(16)}-01`;
+        }
+
+        const DISCIPLINE_QUERY = `{ allArtists(limit: 3) { id name albums { id title } } }`;
+
+        async function runDisciplineDemo() {
+            // Reset trace-id for each demo run
+            window._demoTraceId = null;
+
+            const panel = document.getElementById('discipline-result');
+            const stepsEl = document.getElementById('discipline-steps');
+            panel.style.display = 'block';
+
+            // Define the 5 requests:
+            //   #1 GraphQL allArtists  (OTEL traceparent)       — 1st identical
+            //   #2 GraphQL allArtists  (OTEL traceparent)       — 2nd identical, back-to-back → G010
+            //   #3 REST /api/counts/   (no trace header)        — spacer (IP+UA fallback)
+            //   #4 REST /api/artists/  (no trace header)        — spacer (IP+UA fallback)
+            //   #5 GraphQL allArtists  (OTEL traceparent)       — 3rd identical, spaced → G010
+            const steps = [
+                { label: '① GraphQL allArtists',  type: 'gql',  otel: true,  note: '1st request — baseline' },
+                { label: '② GraphQL allArtists',  type: 'gql',  otel: true,  note: 'DUPLICATE — back-to-back → expect G010' },
+                { label: '③ REST /api/counts/',    type: 'rest', url: '/api/counts/',   note: 'spacer (IP+UA fallback, no OTEL)' },
+                { label: '④ REST /api/artists/',   type: 'rest', url: '/api/artists/',  note: 'spacer (IP+UA fallback, no OTEL)' },
+                { label: '⑤ GraphQL allArtists',  type: 'gql',  otel: true,  note: 'DUPLICATE — spaced but same fingerprint → expect G010' },
+            ];
+
+            // Render initial step list
+            stepsEl.innerHTML = steps.map((s, i) =>
+                `<div id="step-${i}" class="step step-pending">${s.label}  <span class="trace-header">${s.note}</span></div>`
+            ).join('') + '<div id="step-summary" class="step" style="margin-top:12px; display:none;"></div>';
+
+            // Run sequentially so the middleware sees them in order
+            for (let i = 0; i < steps.length; i++) {
+                const s = steps[i];
+                const el = document.getElementById(`step-${i}`);
+                el.className = 'step step-running';
+                el.innerHTML = `⏳ ${s.label}  <span class="trace-header">${s.note}</span>`;
+
+                try {
+                    let resp;
+                    if (s.type === 'gql') {
+                        const headers = { 'Content-Type': 'application/json' };
+                        if (s.otel) headers['traceparent'] = makeTraceparent();
+                        resp = await fetch('/graphql/', {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify({ query: DISCIPLINE_QUERY }),
+                        });
+                    } else {
+                        // REST — no OTEL header, exercises IP+UA fallback
+                        resp = await fetch(s.url);
+                    }
+                    const data = await resp.json();
+                    const isDup = (i === 1 || i === 4);
+                    el.className = isDup ? 'step step-dup' : 'step step-done';
+                    const statusIcon = isDup ? '🔴' : '✅';
+                    const fpLabel = s.otel ? 'otel' : 'ip+ua';
+                    el.innerHTML = `${statusIcon} ${s.label}  <span class="trace-header">[${fpLabel}] ${resp.status} — ${s.note}</span>`;
+                } catch (err) {
+                    el.className = 'step step-pending';
+                    el.innerHTML = `❌ ${s.label}  <span class="trace-header">Error: ${err.message}</span>`;
+                }
+
+                // Small delay between requests so timestamps differ
+                if (i < steps.length - 1) await new Promise(r => setTimeout(r, 80));
+            }
+
+            // Summary
+            const summary = document.getElementById('step-summary');
+            summary.style.display = 'block';
+            summary.className = 'step step-dup';
+            summary.innerHTML = '🔥 Check your Django console — you should see [G010] Duplicate request findings for steps ② and ⑤';
         }
     </script>
 </body>
