@@ -48,3 +48,7 @@ class RequestContext:
     request_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     operation_name: str = ""
     operation_type: str = ""
+    # Discipline: cross-request tracing fingerprints
+    client_fingerprint: str = ""
+    client_fp_source: str = ""
+    request_fingerprint: str = ""
