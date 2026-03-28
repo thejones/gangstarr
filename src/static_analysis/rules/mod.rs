@@ -1,4 +1,5 @@
 mod g101;
+#[allow(dead_code)] // G102 disabled — kept for future re-enablement
 mod g102;
 mod g103;
 mod g104;
@@ -117,6 +118,7 @@ pub(super) fn join_logical_line(lines: &[&str], start: usize) -> (String, usize)
 /// Check if lines following `start` (within the same chain expression) contain
 /// any of the given method calls.  Looks for continuation lines that begin with
 /// `.` at the same or deeper indentation.
+#[allow(dead_code)] // used by G102 (currently disabled)
 pub(super) fn chain_contains_method(lines: &[&str], start: usize, methods: &[&str]) -> bool {
     let base_indent = indent_of(lines[start]);
     for i in (start + 1)..lines.len() {
